@@ -481,8 +481,8 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
         <label class="gyroMenuToggle"><input type="checkbox" id="menuGyroEnabled" checked> 자이로 센서 조향 사용</label>
         <span id="gyroMenuState">GYRO ON</span>
       </div>
-      <label class="gyroMenuSens"><span>감도</span><input id="menuGyroSens" type="range" min="0.45" max="2.60" step="0.05" value="1.10"><span id="menuGyroSensValue">1.10x</span></label>
-      <div class="gyroMenuNote">iPhone을 핸들처럼 좌우로 기울여 조향합니다. START를 누를 때 현재 각도를 중앙값으로 자동 보정하며, 감도는 주행 중 고정됩니다.</div>
+      <label class="gyroMenuSens"><span>감도</span><input id="menuGyroSens" type="range" min="0.80" max="6.00" step="0.05" value="2.40"><span id="menuGyroSensValue">2.40x</span></label>
+      <div class="gyroMenuNote">START를 누르면 오디오와 자이로 권한을 함께 요청합니다. 팝업이 뜨면 허용을 누르세요. 현재 각도를 중앙값으로 자동 보정하며, 감도가 약하면 2.0x 이상으로 올리세요.<div id="gyroPermissionHint" style="margin-top:5px;color:#36e6ff;font-weight:800;letter-spacing:.4px;">권한 상태: START 대기</div></div>
     </div>
     <div class="modeTitle">DRIVING GUIDE</div>
     <div class="guideBox">
@@ -4165,8 +4165,14 @@ function setAudioParam(p,v,t){
   try{p.setTargetAtTime(v,SND.ctx.currentTime,t||0.035);}catch(_){p.value=v;}
 }
 function initAudio(){
-  if(SND.ctx){try{SND.ctx.resume();}catch(_){} return;}
-  const C=new (window.AudioContext||window.webkitAudioContext)();
+  const AudioCtor=window.AudioContext||window.webkitAudioContext;
+  if(!AudioCtor)return null;
+  if(SND.ctx){
+    try{const r=SND.ctx.resume&&SND.ctx.resume();if(r&&typeof r.catch==='function')r.catch(()=>{});}catch(_){}
+    return SND.ctx;
+  }
+  let C;
+  try{C=new AudioCtor({latencyHint:'interactive'});}catch(_){C=new AudioCtor();}
   SND.ctx=C;
   SND.master=C.createGain(); SND.master.gain.value=0.86;
   SND.comp=C.createDynamicsCompressor();
@@ -4257,6 +4263,17 @@ function initAudio(){
     oA.start(); oB.start();
     SND.ai.push({oA,oB,gain:mix,filter:f,pan,gA,gB});
   }
+
+  // iOS/Safari audio unlock: create and start one silent source inside the user gesture.
+  try{
+    const silent=C.createBufferSource();
+    silent.buffer=C.createBuffer(1,1,Math.max(8000,C.sampleRate||44100));
+    const sg=C.createGain();sg.gain.value=0.00001;
+    silent.connect(sg);sg.connect(C.destination);
+    silent.start(0);
+  }catch(_){}
+  try{const rr=C.resume&&C.resume();if(rr&&typeof rr.catch==='function')rr.catch(()=>{});}catch(_){}
+  return C;
 }
 function beep(f,dur,vol){
   if(!SND.ctx||SND.muted)return;
@@ -9116,7 +9133,7 @@ function installIPhoneMobileBuild(){
 function mobileTap(id,fn){
   const el=document.getElementById(id);if(!el)return;
   let lastTap=0;
-  const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} const now=performance.now();if(now-lastTap<130)return;lastTap=now;initAudio();focusGame();fn();};
+  const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} const now=performance.now();if(now-lastTap<130)return;lastTap=now;if(typeof unlockIOSAudioNow==='function')unlockIOSAudioNow();else initAudio();focusGame();fn();};
   for(const ev of ['pointerdown','touchstart','mousedown'])el.addEventListener(ev,run,{passive:false});
 }
 function mobileHoldKey(id,k){
@@ -9163,9 +9180,12 @@ const IOS_APP_INPUT={
   zero:0,
   steer:0,
   smoothed:0,
-  sensitivity:parseFloat(localStorage.getItem('f1GyroSensitivity')||'1.10')||1.10,
+  sensitivity:Math.max(2.20,parseFloat(localStorage.getItem('f1GyroSensitivityV2')||'2.40')||2.40),
   lastNativeT:0,
   lastWebT:0,
+  lastMotionT:0,
+  audioUnlocked:false,
+  startPrepared:false,
   rafStarted:false
 };
 try{document.documentElement.classList.add('ios-app-html');document.body.classList.add('ios-native-app');}catch(_){ }
@@ -9256,7 +9276,7 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     if(menuGyroSens)menuGyroSens.disabled=!IOS_APP_INPUT.gyroEnabled;
     if(persist){
       try{localStorage.setItem('f1GyroEnabled',IOS_APP_INPUT.gyroEnabled?'1':'0');}catch(_){}
-      try{localStorage.setItem('f1GyroSensitivity',IOS_APP_INPUT.sensitivity.toFixed(2));}catch(_){}
+      try{localStorage.setItem('f1GyroSensitivityV2',IOS_APP_INPUT.sensitivity.toFixed(2));}catch(_){}
     }
   }
   if(menuGyroEnabled){menuGyroEnabled.checked=!!IOS_APP_INPUT.gyroEnabled;menuGyroEnabled.addEventListener('change',()=>applyMenuGyroSettings(true));}
@@ -9268,25 +9288,99 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
   function appTap(id,fn){
     const el=document.getElementById(id);if(!el)return;
     let last=0;
-    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){}const now=performance.now();if(now-last<140)return;last=now;initAudio();focusGame();fn();};
+    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){}const now=performance.now();if(now-last<140)return;last=now;if(window.__prepareIOSStartActivation&&state==='menu')window.__prepareIOSStartActivation(e);else if(typeof unlockIOSAudioNow==='function')unlockIOSAudioNow();else initAudio();focusGame();fn();};
     for(const ev of ['pointerdown','touchstart','mousedown'])el.addEventListener(ev,run,{passive:false});
   }
   appTap('tMenu',()=>{goToStartMenu();});
   appTap('tRestart',()=>{if(state==='menu')return;initAudio();document.getElementById('startOverlay').style.display='none';document.getElementById('resultOverlay').style.display='none';startRace();focusGame();});
-  async function requestWebGyroPermission(){
-    try{
-      if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
-        const r=await DeviceOrientationEvent.requestPermission();IOS_APP_INPUT.gyroPermission=(r==='granted');
-      }else IOS_APP_INPUT.gyroPermission=true;
-    }catch(_){IOS_APP_INPUT.gyroPermission=false;}
+  function setGyroPermissionHint(txt,kind='info'){
+    const h=document.getElementById('gyroPermissionHint');
+    if(h){h.textContent=txt;h.style.color=kind==='ok'?'#37ff8b':(kind==='bad'?'#ff6676':'#36e6ff');}
+    const s=document.getElementById('gyroMenuState');
+    if(s){s.textContent=IOS_APP_INPUT.gyroEnabled?(kind==='ok'?'GYRO READY':'GYRO ON'):'GYRO OFF';s.classList.toggle('off',!IOS_APP_INPUT.gyroEnabled||kind==='bad');}
   }
+  async function unlockIOSAudioNow(){
+    try{
+      SND.muted=false;
+      const C=initAudio();
+      if(!C){setGyroPermissionHint('오디오 초기화 실패: AudioContext 없음','bad');return false;}
+      if(!IOS_APP_INPUT.audioUnlocked){
+        try{
+          const src=C.createBufferSource();
+          src.buffer=C.createBuffer(1,1,Math.max(8000,C.sampleRate||44100));
+          const g=C.createGain();g.gain.value=0.00001;
+          src.connect(g);g.connect(C.destination);src.start(0);
+        }catch(_){}
+        IOS_APP_INPUT.audioUnlocked=true;
+      }
+      try{const r=C.resume&&C.resume();if(r&&typeof r.then==='function')await r;}catch(_){}
+      const ba=bgmAudio&&bgmAudio();if(ba){ba.muted=false;ba.volume=clamp(bgmVolume()*0.95,0,1);}
+      return !C.state||C.state==='running';
+    }catch(e){console.warn('iOS audio unlock failed',e);return false;}
+  }
+  async function requestOneMotionPermission(ctorName){
+    try{
+      const ctor=window[ctorName];
+      if(!ctor)return 'unsupported';
+      if(typeof ctor.requestPermission==='function'){
+        const r=await ctor.requestPermission();
+        return r;
+      }
+      return 'granted';
+    }catch(e){console.warn(ctorName+' permission failed',e);return 'denied';}
+  }
+  async function requestWebGyroPermission(){
+    if(!IOS_APP_INPUT.gyroEnabled){IOS_APP_INPUT.gyroPermission=false;setGyroPermissionHint('권한 상태: 자이로 OFF','bad');return false;}
+    const secure=(window.isSecureContext===true)||location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1';
+    if(!secure){IOS_APP_INPUT.gyroPermission=false;setGyroPermissionHint('권한 상태: HTTPS가 아니라 센서 사용 불가','bad');return false;}
+    setGyroPermissionHint('권한 상태: 센서 권한 요청 중...','info');
+    const orientPromise=requestOneMotionPermission('DeviceOrientationEvent');
+    const motionPromise=requestOneMotionPermission('DeviceMotionEvent');
+    const [o,m]=await Promise.all([orientPromise,motionPromise]);
+    const granted=(o==='granted'||m==='granted'||(o==='unsupported'&&m==='unsupported'));
+    IOS_APP_INPUT.gyroPermission=!!granted;
+    IOS_APP_INPUT.gyroSource=granted?'permission-granted':'permission-denied';
+    if(granted)setGyroPermissionHint('권한 상태: 허용됨 · START 후 폰을 좌우로 돌려보세요','ok');
+    else setGyroPermissionHint('권한 상태: 거부됨 · Safari 설정의 모션/방향 접근을 확인하세요','bad');
+    return !!granted;
+  }
+  async function prepareIOSStartActivation(e){
+    try{e&&e.preventDefault&&e.preventDefault();}catch(_){}
+    applyMenuGyroSettings(true);
+    let gyroPromise=null;
+    if(IOS_APP_INPUT.gyroEnabled)gyroPromise=requestWebGyroPermission();
+    else{IOS_APP_INPUT.gyroPermission=false;setGyroPermissionHint('권한 상태: 자이로 OFF','bad');}
+    await unlockIOSAudioNow();
+    if(gyroPromise)await gyroPromise;
+    try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{});}catch(_){ }
+    IOS_APP_INPUT.zero=rawGyro();IOS_APP_INPUT.smoothed=0;IOS_APP_INPUT.steer=0;if(car)car.steer=0;
+    if(IOS_APP_INPUT.gyroEnabled)setTimeout(centerGyro,220);
+    IOS_APP_INPUT.startPrepared=true;
+    return true;
+  }
+  window.__prepareIOSStartActivation=prepareIOSStartActivation;
   window.addEventListener('deviceorientation',e=>{
     try{
       const ang=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
       let raw=0;
       if(Math.abs(ang)===90)raw=(ang===90?e.beta:-e.beta)/42;else raw=(e.gamma||0)/42;
-      if(Number.isFinite(raw)){IOS_APP_INPUT.webRaw=clamp(raw,-1.8,1.8);IOS_APP_INPUT.lastWebT=performance.now();}
+      if(Number.isFinite(raw)&&IOS_APP_INPUT.gyroEnabled){IOS_APP_INPUT.webRaw=clamp(raw,-2.2,2.2);IOS_APP_INPUT.lastWebT=performance.now();if(IOS_APP_INPUT.gyroPermission)setGyroPermissionHint('권한 상태: 센서 입력 수신 중','ok');}
     }catch(_){ }
+  },true);
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS_APP_INPUT.gyroEnabled)return;
+      const a=e.accelerationIncludingGravity;
+      if(!a)return;
+      const ang=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+      let raw=0;
+      if(Math.abs(ang)===90){raw=(ang===90?-(a.y||0):(a.y||0))/7.2;}else raw=(a.x||0)/7.2;
+      if(Number.isFinite(raw)&&Math.abs(raw)>0.006){
+        IOS_APP_INPUT.webRaw=clamp(raw,-2.0,2.0);
+        IOS_APP_INPUT.lastMotionT=performance.now();
+        if(IOS_APP_INPUT.gyroPermission)setGyroPermissionHint('권한 상태: 모션 입력 수신 중','ok');
+      }
+    }catch(_){}
   },true);
   window.F1NativeMotion={
     setSteer(v){const x=Number(v);if(Number.isFinite(x)){IOS_APP_INPUT.nativeRaw=clamp(x,-1.8,1.8);IOS_APP_INPUT.nativeSeen=true;IOS_APP_INPUT.lastNativeT=performance.now();}},
@@ -9302,15 +9396,15 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     oldUpdateInputs(dt);
     if(IOS_APP_INPUT.gyroEnabled&&(state==='race'||state==='lights')){
       const raw=rawGyro()-IOS_APP_INPUT.zero;
-      const dead=0.025;
+      const dead=0.010;
       let target=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
       target=clamp(target*IOS_APP_INPUT.sensitivity,-1,1);
       // Match the game convention: positive steer means left.  Native roll sign can be recalibrated by centering.
       target=-target;
-      IOS_APP_INPUT.smoothed+=clamp(target-IOS_APP_INPUT.smoothed,-dt*5.2,dt*5.2);
+      IOS_APP_INPUT.smoothed+=clamp(target-IOS_APP_INPUT.smoothed,-dt*8.0,dt*8.0);
       const steerRate=Number.isFinite(P.steerRate)?P.steerRate:1.95;
       const returnRate=Number.isFinite(P.steerReturnRate)?P.steerReturnRate:3.3;
-      const rate=(Math.abs(IOS_APP_INPUT.smoothed)>0.01?Math.max(steerRate*1.45,3.1):returnRate);
+      const rate=(Math.abs(IOS_APP_INPUT.smoothed)>0.01?Math.max(steerRate*2.05,4.2):returnRate);
       car.steer+=clamp(IOS_APP_INPUT.smoothed-car.steer,-rate*dt,rate*dt);
       if(Math.abs(car.steer)<0.012&&Math.abs(IOS_APP_INPUT.smoothed)<0.012)car.steer=0;
     }
@@ -9337,15 +9431,505 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     requestAnimationFrame(uiLoop);
   }
   if(!IOS_APP_INPUT.rafStarted){IOS_APP_INPUT.rafStarted=true;requestAnimationFrame(uiLoop);}  
-  document.getElementById('btnStart')?.addEventListener('pointerdown',async()=>{
-    applyMenuGyroSettings(true);
-    if(IOS_APP_INPUT.gyroEnabled)await requestWebGyroPermission();
-    else IOS_APP_INPUT.gyroPermission=false;
-    try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{});}catch(_){ }
-    if(IOS_APP_INPUT.gyroEnabled)setTimeout(centerGyro,180);
-    else{IOS_APP_INPUT.zero=rawGyro();IOS_APP_INPUT.smoothed=0;IOS_APP_INPUT.steer=0;car.steer=0;}
-  },{passive:true});
+  const startButtonForIOS=document.getElementById('btnStart');
+  if(startButtonForIOS){
+    startButtonForIOS.addEventListener('touchend',e=>{
+      // The main click handler below performs the awaited start preparation.
+      // This early hook keeps iOS Safari from treating the gesture as unrelated page chrome.
+      try{e.stopPropagation();}catch(_){}
+    },{passive:false,capture:true});
+  }
 })();
+
+
+
+/* ============================================================
+   iOS AUDIO + GYRO PERMISSION RELIABILITY PATCH — 2026-06
+   - unlocks Web Audio on direct touch/pointer gestures
+   - requests both DeviceOrientation and DeviceMotion permission
+   - adds start-screen diagnostic/status UI
+   - uses stronger, adaptive gyro steering mapping for landscape Safari
+   ============================================================ */
+(function installIOSAudioGyroReliabilityPatch(){
+  if(!MOBILE_PROFILE)return;
+  const btnStart=document.getElementById('btnStart');
+  const gyroBox=document.getElementById('gyroMenuBox');
+  const menuGyroSens=document.getElementById('menuGyroSens');
+  const menuGyroSensValue=document.getElementById('menuGyroSensValue');
+  const menuGyroEnabled=document.getElementById('menuGyroEnabled');
+  const gyroMenuState=document.getElementById('gyroMenuState');
+  const IOS=window.IOS_APP_INPUT||IOS_APP_INPUT;
+  IOS.orientationSample=null;
+  IOS.orientationCenter=null;
+  IOS.motionRaw=0;
+  IOS.lastMotionT=0;
+  IOS.lastPermissionRequestT=0;
+  IOS.audioUnlocked=false;
+  IOS.audioStatus='locked';
+  IOS.permissionStatus='not requested';
+  IOS.gyroHealth='waiting';
+  IOS.sensitivity=Math.max(Number(IOS.sensitivity)||1.10,1.65);
+  if(menuGyroSens){
+    menuGyroSens.min='0.70';
+    menuGyroSens.max='4.00';
+    menuGyroSens.step='0.05';
+    if(Number(menuGyroSens.value)<1.45)menuGyroSens.value=IOS.sensitivity.toFixed(2);
+  }
+  if(menuGyroSensValue)menuGyroSensValue.textContent=(Number(menuGyroSens&&menuGyroSens.value)||IOS.sensitivity).toFixed(2)+'x';
+  if(btnStart&&!btnStart.dataset.audioGyroLabel){
+    btnStart.dataset.audioGyroLabel='1';
+    btnStart.textContent='START · SOUND / GYRO ENABLE';
+  }
+  if(gyroBox&&!document.getElementById('gyroPermissionBtn')){
+    const wrap=document.createElement('div');
+    wrap.className='gyroDiagBox';
+    wrap.innerHTML=`
+      <div class="gyroDiagRow">
+        <button type="button" id="gyroPermissionBtn">센서 권한 테스트</button>
+        <button type="button" id="audioUnlockBtn">사운드 켜기</button>
+      </div>
+      <div id="gyroDiagStatus" class="gyroDiagStatus">AUDIO: locked · GYRO: waiting</div>`;
+    gyroBox.appendChild(wrap);
+    const style=document.createElement('style');
+    style.textContent=`
+      .gyroDiagBox{margin-top:9px;border-top:1px solid rgba(160,190,210,.16);padding-top:8px;}
+      .gyroDiagRow{display:flex;gap:7px;flex-wrap:wrap;}
+      .gyroDiagRow button{font-size:10px;letter-spacing:.7px;padding:8px 10px;border-radius:7px;background:#182433;border:1px solid rgba(54,230,255,.38);color:#eaf7ff;box-shadow:none;}
+      .gyroDiagRow button:active{transform:translateY(1px);background:#20364b;}
+      .gyroDiagStatus{margin-top:7px;font-size:9px;line-height:1.45;color:#9fb4c4;font-variant-numeric:tabular-nums;}
+      .gyroDiagStatus.good{color:#37ff8b}.gyroDiagStatus.warn{color:#ffd24a}.gyroDiagStatus.bad{color:#ff6676}`;
+    document.head.appendChild(style);
+  }
+  const diag=()=>document.getElementById('gyroDiagStatus');
+  function setDiag(cls,msg){
+    const d=diag();if(!d)return;
+    d.classList.remove('good','warn','bad');
+    if(cls)d.classList.add(cls);
+    d.textContent=msg;
+  }
+  function permissionSummary(){
+    const sampleFresh=Math.max(IOS.lastWebT||0,IOS.lastMotionT||0,IOS.lastNativeT||0);
+    const age=sampleFresh?Math.round(performance.now()-sampleFresh):99999;
+    const source=IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<700?'native':((IOS.lastWebT||0)>(IOS.lastMotionT||0)?'orientation':'motion');
+    const audio=SND.ctx?(SND.ctx.state||'unknown'):'not created';
+    let cls='warn',gyroText='waiting';
+    if(IOS.gyroPermission===false||/denied|blocked/i.test(IOS.permissionStatus)){cls='bad';gyroText='permission denied';}
+    else if(age<900){cls='good';gyroText='data '+source+' · '+age+' ms';}
+    else if(IOS.gyroEnabled){cls='warn';gyroText='permission '+IOS.permissionStatus+' · no data yet';}
+    else {cls='warn';gyroText='OFF';}
+    setDiag(cls,'AUDIO: '+audio+(IOS.audioUnlocked?' · unlocked':'')+' · GYRO: '+gyroText+' · SENS: '+(IOS.sensitivity||1).toFixed(2)+'x');
+    if(gyroMenuState){
+      if(IOS.gyroEnabled&&age<900){gyroMenuState.textContent='GYRO READY';gyroMenuState.classList.remove('off');}
+      else if(IOS.gyroEnabled){gyroMenuState.textContent='GYRO WAIT';gyroMenuState.classList.remove('off');}
+      else{gyroMenuState.textContent='GYRO OFF';gyroMenuState.classList.add('off');}
+    }
+  }
+  function startSilentPulse(C){
+    try{
+      const b=C.createBuffer(1,1,C.sampleRate);
+      const s=C.createBufferSource();
+      const g=C.createGain();
+      g.gain.value=0.00001;
+      s.buffer=b;s.connect(g);g.connect(C.destination);s.start(0);
+    }catch(_){ }
+  }
+  async function unlockGameAudio(reason){
+    try{
+      SND.muted=false;
+      initAudio();
+      const C=SND.ctx;
+      if(C){
+        startSilentPulse(C);
+        if(C.state!=='running'){
+          try{await C.resume();}catch(_){ }
+        }
+        if(SND.master&&SND.master.gain){
+          try{SND.master.gain.setTargetAtTime(0.90,C.currentTime,0.025);}catch(_){SND.master.gain.value=0.90;}
+        }
+        IOS.audioUnlocked=(C.state==='running');
+        IOS.audioStatus=C.state||'unknown';
+      }
+      const a=bgmAudio&&bgmAudio();
+      if(a){a.muted=false;try{a.load&&a.load();}catch(_){ }}
+    }catch(e){IOS.audioStatus='error';console.warn('audio unlock failed',reason,e);}
+    permissionSummary();
+  }
+  function normAngleDelta(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function computeAdaptiveRaw(sample){
+    const c=IOS.orientationCenter||sample;
+    if(!sample||!c)return 0;
+    const ang=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+    const db=(Number(sample.beta)||0)-(Number(c.beta)||0);
+    const dg=(Number(sample.gamma)||0)-(Number(c.gamma)||0);
+    const da=normAngleDelta(Number(sample.alpha),Number(c.alpha));
+    let candidates=[];
+    if(Math.abs(ang)===90){
+      candidates.push({v:(ang===90?db:-db)/24,w:1.00});
+      candidates.push({v:(ang===90?-dg:dg)/27,w:0.72});
+      candidates.push({v:(ang===90?da:-da)/34,w:0.42});
+    }else{
+      candidates.push({v:dg/24,w:1.00});
+      candidates.push({v:-db/29,w:0.68});
+      candidates.push({v:da/38,w:0.35});
+    }
+    candidates=candidates.filter(x=>Number.isFinite(x.v));
+    if(!candidates.length)return 0;
+    candidates.sort((a,b)=>Math.abs(b.v*b.w)-Math.abs(a.v*a.w));
+    const primary=candidates[0].v;
+    const secondary=candidates[1]?candidates[1].v*0.22:0;
+    return clamp(primary+secondary,-1.9,1.9);
+  }
+  function markGyroSample(){
+    IOS.gyroHealth='data';
+    if(state==='menu')permissionSummary();
+  }
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      const sample={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:performance.now()};
+      if(!Number.isFinite(sample.beta)&&!Number.isFinite(sample.gamma))return;
+      IOS.orientationSample=sample;
+      if(!IOS.orientationCenter)IOS.orientationCenter=sample;
+      IOS.webRaw=computeAdaptiveRaw(sample);
+      IOS.lastWebT=sample.t;
+      markGyroSample();
+    }catch(_){ }
+  },true);
+  window.addEventListener('devicemotion',e=>{
+    try{
+      const rr=e.rotationRate||{};
+      const now=performance.now();
+      const dt=clamp((now-(IOS.lastMotionT||now))/1000,0.004,0.050);
+      const ang=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+      let rate=0;
+      if(Math.abs(ang)===90)rate=(ang===90?(Number(rr.beta)||0):-(Number(rr.beta)||0));
+      else rate=Number(rr.gamma)||0;
+      if(Number.isFinite(rate)&&Math.abs(rate)>0.05){
+        IOS.motionRaw=clamp((IOS.motionRaw||0)+rate*dt/42,-1.45,1.45);
+        if(!(IOS.lastWebT&&now-IOS.lastWebT<350))IOS.webRaw=IOS.motionRaw;
+      }
+      IOS.lastMotionT=now;
+      markGyroSample();
+    }catch(_){ }
+  },true);
+  async function requestGyroAccess(reason){
+    if(!IOS.gyroEnabled){IOS.gyroPermission=false;IOS.permissionStatus='off';permissionSummary();return false;}
+    IOS.lastPermissionRequestT=performance.now();
+    let result='unsupported';
+    try{
+      const jobs=[];
+      if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+        jobs.push(DeviceOrientationEvent.requestPermission().then(r=>['orientation',r]).catch(e=>['orientation','error']));
+      }
+      if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+        jobs.push(DeviceMotionEvent.requestPermission().then(r=>['motion',r]).catch(e=>['motion','error']));
+      }
+      if(jobs.length){
+        const out=await Promise.allSettled(jobs);
+        const vals=out.map(x=>x.status==='fulfilled'?x.value:['unknown','error']);
+        result=vals.map(x=>x[0]+':'+x[1]).join(', ');
+        IOS.gyroPermission=vals.some(x=>x[1]==='granted');
+      }else{
+        IOS.gyroPermission=true;
+        result='no requestPermission API';
+      }
+    }catch(e){
+      IOS.gyroPermission=false;
+      result='blocked/error';
+    }
+    IOS.permissionStatus=result;
+    IOS.orientationCenter=IOS.orientationSample||{alpha:0,beta:0,gamma:0,t:performance.now()};
+    IOS.zero=0;
+    IOS.motionRaw=0;
+    IOS.smoothed=0;
+    permissionSummary();
+    setTimeout(()=>{
+      const fresh=Math.max(IOS.lastWebT||0,IOS.lastMotionT||0,IOS.lastNativeT||0);
+      if(IOS.gyroEnabled&&IOS.gyroPermission!==false&&performance.now()-fresh>1400){
+        showMsg('GYRO DATA NOT DETECTED','warn',1400);
+        permissionSummary();
+      }else if(IOS.gyroEnabled&&IOS.gyroPermission){
+        showMsg('GYRO READY','',650);
+      }
+    },1450);
+    return !!IOS.gyroPermission;
+  }
+  function recenterIOSGyro(){
+    IOS.orientationCenter=IOS.orientationSample||IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:performance.now()};
+    IOS.zero=0;
+    IOS.motionRaw=0;
+    IOS.webRaw=0;
+    IOS.smoothed=0;
+    if(car)car.steer=0;
+    permissionSummary();
+  }
+  window.__requestIOSGyroAccess=requestGyroAccess;
+  window.__unlockIOSGameAudio=unlockGameAudio;
+  window.__centerIOSGyro=recenterIOSGyro;
+  const oldNative=window.F1NativeMotion||{};
+  window.F1NativeMotion={
+    ...oldNative,
+    setSteer(v){
+      if(oldNative.setSteer)try{oldNative.setSteer(v);}catch(_){ }
+      const x=Number(v);if(Number.isFinite(x)){IOS.nativeRaw=clamp(x,-1.9,1.9);IOS.nativeSeen=true;IOS.lastNativeT=performance.now();IOS.gyroPermission=true;markGyroSample();}
+    },
+    center(){if(oldNative.center)try{oldNative.center();}catch(_){ }recenterIOSGyro();}
+  };
+  const oldApply=window.__applyMenuGyroSettings;
+  window.__applyMenuGyroSettings=function(persist=true){
+    if(oldApply)oldApply(persist);
+    if(menuGyroSens){
+      const v=parseFloat(menuGyroSens.value);
+      if(Number.isFinite(v))IOS.sensitivity=v;
+      if(menuGyroSensValue)menuGyroSensValue.textContent=IOS.sensitivity.toFixed(2)+'x';
+    }
+    if(menuGyroEnabled)IOS.gyroEnabled=!!menuGyroEnabled.checked;
+    permissionSummary();
+  };
+  const oldRawGyroGetter=window.__iosRawGyroValue;
+  window.__iosRawGyroValue=function(){
+    if(IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<600)return IOS.nativeRaw;
+    if(IOS.lastWebT&&performance.now()-IOS.lastWebT<900)return IOS.webRaw;
+    if(IOS.lastMotionT&&performance.now()-IOS.lastMotionT<900)return IOS.motionRaw;
+    return oldRawGyroGetter?oldRawGyroGetter():IOS.webRaw||0;
+  };
+  const oldUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    oldUpdateInputs(dt);
+    if(!IOS.gyroEnabled||!(state==='race'||state==='lights'))return;
+    const fresh=Math.max(IOS.lastNativeT||0,IOS.lastWebT||0,IOS.lastMotionT||0);
+    if(performance.now()-fresh>1600)return;
+    const raw=window.__iosRawGyroValue();
+    const dead=0.012;
+    let target=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
+    const speedRel=clamp(Math.abs(car.vx||0)/Math.max(45,P.topSpeed||80),0,1);
+    const speedDamp=lerp(1.05,0.72,speedRel);
+    target=clamp(-target*(IOS.sensitivity||1.65)*speedDamp,-1,1);
+    IOS.smoothed+=clamp(target-IOS.smoothed,-dt*8.5,dt*8.5);
+    const rate=Number.isFinite(P.steerRate)?Math.max(P.steerRate*2.1,4.4):4.4;
+    car.steer+=clamp(IOS.smoothed-car.steer,-rate*dt,rate*dt);
+    if(Math.abs(car.steer)<0.008&&Math.abs(IOS.smoothed)<0.008)car.steer=0;
+  };
+  async function prepareMobileStart(reason){
+    if(menuGyroSens){
+      const v=parseFloat(menuGyroSens.value);if(Number.isFinite(v))IOS.sensitivity=v;
+    }
+    if(menuGyroEnabled)IOS.gyroEnabled=!!menuGyroEnabled.checked;
+    let permissionPromise=null;
+    if(IOS.gyroEnabled)permissionPromise=requestGyroAccess(reason);
+    else{IOS.gyroPermission=false;IOS.permissionStatus='off';permissionSummary();}
+    await unlockGameAudio(reason);
+    if(permissionPromise)await permissionPromise;
+    recenterIOSGyro();
+  }
+  if(btnStart){
+    let last=0;
+    const run=e=>{const now=performance.now();if(now-last<260)return;last=now;prepareMobileStart(e.type);};
+    for(const ev of ['pointerdown','touchstart','touchend','click'])btnStart.addEventListener(ev,run,{passive:true,capture:true});
+  }
+  const gbtn=document.getElementById('gyroPermissionBtn');
+  if(gbtn){
+    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} if(menuGyroEnabled)menuGyroEnabled.checked=true;IOS.gyroEnabled=true;if(window.__applyMenuGyroSettings)window.__applyMenuGyroSettings(true);requestGyroAccess('test button');};
+    for(const ev of ['pointerdown','touchstart','click'])gbtn.addEventListener(ev,run,{passive:false});
+  }
+  const abtn=document.getElementById('audioUnlockBtn');
+  if(abtn){
+    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} unlockGameAudio('audio button').then(()=>{if(SND.ctx&&SND.ctx.state==='running'){beep(880,0.10,0.24);setDiag('good','AUDIO: running · test beep sent · GYRO: '+(IOS.gyroEnabled?'waiting':'OFF'));}else permissionSummary();});};
+    for(const ev of ['pointerdown','touchstart','click'])abtn.addEventListener(ev,run,{passive:false});
+  }
+  for(const ev of ['pointerdown','touchstart','click']){
+    document.addEventListener(ev,e=>{
+      const t=e.target;
+      if(t&&((t.id||'').startsWith('t')||t.closest&&t.closest('#touch')))unlockGameAudio('drive control');
+    },{passive:true,capture:true});
+  }
+  setInterval(()=>{if(state==='menu')permissionSummary();},900);
+  permissionSummary();
+})();
+
+/* ============================================================
+   FINAL iOS SOUND / GYRO ACTIVATION FIX — 2026-06
+   - initAudio() now returns the active AudioContext.
+   - START, SOUND TEST and GYRO PERMISSION all run unlock/request code inside the same user gesture.
+   - steering-wheel rotation now prioritizes alpha-axis rotation instead of weak tilt-only mapping.
+   ============================================================ */
+(function installFinalIOSSoundGyroFix(){
+  if(!MOBILE_PROFILE)return;
+  const IOS=IOS_APP_INPUT;
+  const originalInitAudioReturnFix=initAudio;
+  initAudio=function(){
+    originalInitAudioReturnFix();
+    return SND.ctx||null;
+  };
+
+  function setDiagFinal(cls,msg){
+    const d=document.getElementById('gyroDiagStatus')||document.getElementById('gyroPermissionHint');
+    if(!d)return;
+    d.classList&&d.classList.remove('good','warn','bad');
+    if(d.classList&&cls)d.classList.add(cls);
+    d.textContent=msg;
+    if(!d.classList)d.style.color=cls==='good'?'#37ff8b':(cls==='bad'?'#ff6676':'#ffd24a');
+  }
+  function diagFinal(extra){
+    const C=SND.ctx;
+    const audio=C?(C.state||'unknown'):'not created';
+    const fresh=Math.max(IOS.lastWebT||0,IOS.lastMotionT||0,IOS.lastNativeT||0);
+    const live=fresh&&performance.now()-fresh<1500;
+    const perm=IOS.permissionStatus||IOS.gyroSource||'not requested';
+    const cls=(audio==='running'&&(!IOS.gyroEnabled||live))?'good':(/denied|blocked|error/i.test(perm)?'bad':'warn');
+    const raw=(window.__iosRawGyroValue?window.__iosRawGyroValue():(IOS.webRaw||0));
+    setDiagFinal(cls,'AUDIO: '+audio+(IOS.audioUnlocked?' · unlocked':'')+' · GYRO: '+(IOS.gyroEnabled?(live?'LIVE':'WAITING'):'OFF')+' · PERM: '+perm+' · RAW '+raw.toFixed(2)+(extra?' · '+extra:''));
+  }
+  function startSilentUnlockPulse(C){
+    try{
+      const src=C.createBufferSource();
+      src.buffer=C.createBuffer(1,1,Math.max(8000,C.sampleRate||44100));
+      const g=C.createGain();
+      g.gain.setValueAtTime(0.00008,C.currentTime);
+      src.connect(g);g.connect(C.destination);src.start(C.currentTime);
+    }catch(_){ }
+  }
+  async function unlockAudioFinal(audible=false){
+    try{
+      SND.muted=false;
+      const C=initAudio();
+      if(!C){IOS.audioStatus='no AudioContext';diagFinal('AUDIO FAILED');return false;}
+      startSilentUnlockPulse(C);
+      if(C.state!=='running'){
+        try{await C.resume();}catch(_){ }
+      }
+      if(SND.master&&SND.master.gain){
+        try{SND.master.gain.setTargetAtTime(0.98,C.currentTime,0.015);}catch(_){SND.master.gain.value=0.98;}
+      }
+      const a=bgmAudio&&bgmAudio();
+      if(a){a.muted=false;try{a.volume=clamp(bgmVolume()*0.95,0,1);}catch(_){ }}
+      IOS.audioUnlocked=C.state==='running';
+      IOS.audioStatus=C.state||'unknown';
+      if(audible&&C.state==='running'){
+        try{beep(880,0.10,0.28);setTimeout(()=>beep(1320,0.08,0.18),130);}catch(_){ }
+      }
+      diagFinal(audible?'SOUND TEST':'AUDIO UNLOCK');
+      return C.state==='running';
+    }catch(e){IOS.audioStatus='error';diagFinal('AUDIO ERROR');return false;}
+  }
+  function requestPermissionImmediateFinal(reason='manual'){
+    if(!IOS.gyroEnabled){IOS.gyroPermission=false;IOS.permissionStatus='off';diagFinal('GYRO OFF');return Promise.resolve(false);}
+    const secure=(window.isSecureContext===true)||location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1';
+    if(!secure){IOS.gyroPermission=false;IOS.permissionStatus='HTTPS required';diagFinal('HTTPS REQUIRED');return Promise.resolve(false);}
+    IOS.permissionStatus='requesting';diagFinal('REQUESTING');
+    const calls=[];
+    try{
+      if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+        calls.push(DeviceMotionEvent.requestPermission().then(r=>['motion',r]).catch(()=>['motion','error']));
+      }
+      if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+        calls.push(DeviceOrientationEvent.requestPermission().then(r=>['orientation',r]).catch(()=>['orientation','error']));
+      }
+    }catch(_){ }
+    if(!calls.length){
+      IOS.gyroPermission=true;IOS.permissionStatus='not required';diagFinal('NO PERMISSION API');return Promise.resolve(true);
+    }
+    return Promise.all(calls).then(results=>{
+      const granted=results.some(x=>x[1]==='granted');
+      IOS.gyroPermission=granted;
+      IOS.permissionStatus=results.map(x=>x[0]+':'+x[1]).join(',');
+      if(granted){
+        IOS.orientationCenter=IOS.orientationSample||IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:performance.now()};
+        IOS.motionRaw=0;IOS.webRaw=0;IOS.smoothed=0;
+        diagFinal('PERMISSION GRANTED');
+      }else{
+        diagFinal('PERMISSION DENIED');
+      }
+      return granted;
+    }).catch(()=>{IOS.gyroPermission=false;IOS.permissionStatus='blocked/error';diagFinal('PERMISSION ERROR');return false;});
+  }
+  function angleDeltaFinal(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;
+  }
+  function tiltFallbackRaw(sample,center){
+    const ang=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+    const db=(Number(sample.beta)||0)-(Number(center.beta)||0);
+    const dg=(Number(sample.gamma)||0)-(Number(center.gamma)||0);
+    if(Math.abs(ang)===90)return (ang===90?db:-db)/24;
+    return dg/24;
+  }
+  window.__iosRawGyroValue=function(){
+    if(IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<650)return IOS.nativeRaw;
+    const sample=IOS.orientationSample;
+    const center=IOS.orientationCenter||sample;
+    let raw=Number(IOS.webRaw)||0;
+    if(sample&&center){
+      const da=angleDeltaFinal(Number(sample.alpha),Number(center.alpha));
+      const alphaRaw=Number.isFinite(da)?da/30:0;
+      const tiltRaw=tiltFallbackRaw(sample,center);
+      // Steering-wheel use primarily rotates the phone around its screen-normal axis,
+      // so alpha must dominate instead of being treated as a weak backup.
+      raw=Math.abs(alphaRaw)>0.018?alphaRaw+tiltRaw*0.10:tiltRaw;
+    }else if(IOS.lastMotionT&&performance.now()-IOS.lastMotionT<900){
+      raw=IOS.motionRaw||raw;
+    }
+    if(IOS.gyroInvert)raw=-raw;
+    return clamp(raw,-2.4,2.4);
+  };
+  window.__unlockIOSGameAudio=unlockAudioFinal;
+  window.__requestIOSGyroAccess=requestPermissionImmediateFinal;
+
+  const gyroBox=document.getElementById('gyroMenuBox');
+  if(gyroBox&&!document.getElementById('menuGyroInvert')){
+    const row=document.createElement('label');
+    row.className='gyroSmallToggle';
+    row.style.marginTop='7px';
+    row.innerHTML='<input type="checkbox" id="menuGyroInvert"> 조향 방향 반전';
+    gyroBox.appendChild(row);
+    const style=document.createElement('style');
+    style.textContent='.gyroSmallToggle{display:flex;align-items:center;gap:6px;color:#b8c8d4;font-size:10px;font-weight:800;letter-spacing:.4px}.gyroSmallToggle input{accent-color:#ff9a42}';
+    document.head.appendChild(style);
+  }
+  const inv=document.getElementById('menuGyroInvert');
+  if(inv){
+    try{inv.checked=localStorage.getItem('f1GyroInvert')==='1';}catch(_){inv.checked=!!IOS.gyroInvert;}
+    IOS.gyroInvert=!!inv.checked;
+    inv.addEventListener('change',()=>{IOS.gyroInvert=!!inv.checked;try{localStorage.setItem('f1GyroInvert',IOS.gyroInvert?'1':'0');}catch(_){}diagFinal('INVERT '+(IOS.gyroInvert?'ON':'OFF'));});
+  }
+  const sens=document.getElementById('menuGyroSens');
+  const sensVal=document.getElementById('menuGyroSensValue');
+  if(sens){
+    sens.min='0.80';sens.max='6.00';sens.step='0.05';
+    if(Number(sens.value)<2.20)sens.value='2.40';
+    IOS.sensitivity=parseFloat(sens.value)||2.40;
+    if(sensVal)sensVal.textContent=IOS.sensitivity.toFixed(2)+'x';
+    sens.addEventListener('input',()=>{IOS.sensitivity=parseFloat(sens.value)||2.40;if(sensVal)sensVal.textContent=IOS.sensitivity.toFixed(2)+'x';try{localStorage.setItem('f1GyroSensitivityV2',IOS.sensitivity.toFixed(2));}catch(_){}diagFinal();},{passive:true});
+  }
+
+  const btnStart=document.getElementById('btnStart');
+  if(btnStart){
+    const activate=e=>{
+      if(document.getElementById('menuGyroEnabled'))IOS.gyroEnabled=!!document.getElementById('menuGyroEnabled').checked;
+      unlockAudioFinal(false);              // starts/resumes AudioContext immediately in the gesture
+      requestPermissionImmediateFinal('start'); // triggers iOS sensor prompt immediately in the same gesture
+    };
+    for(const ev of ['pointerdown','touchstart','click'])btnStart.addEventListener(ev,activate,{capture:true,passive:true});
+  }
+  const audioBtn=document.getElementById('audioUnlockBtn')||document.getElementById('btnSoundTest');
+  if(audioBtn){
+    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){}unlockAudioFinal(true);};
+    for(const ev of ['pointerdown','touchstart','click'])audioBtn.addEventListener(ev,run,{capture:true,passive:false});
+  }
+  const gyroBtn=document.getElementById('gyroPermissionBtn')||document.getElementById('btnGyroPermission');
+  if(gyroBtn){
+    const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){}const g=document.getElementById('menuGyroEnabled');if(g)g.checked=true;IOS.gyroEnabled=true;unlockAudioFinal(false);requestPermissionImmediateFinal('button');};
+    for(const ev of ['pointerdown','touchstart','click'])gyroBtn.addEventListener(ev,run,{capture:true,passive:false});
+  }
+  setInterval(()=>{if(state==='menu')diagFinal();},700);
+  diagFinal();
+})();
+
 
 mobileTap('tDrs',mobileDrsAction);
 mobileTap('tCam',()=>{camMode=(camMode+1)%4;showMsg('CAMERA '+(camMode+1),'',420);});
@@ -9358,15 +9942,18 @@ document.addEventListener('touchmove',e=>{if(state!=='menu')e.preventDefault();}
 document.addEventListener('gesturestart',e=>{try{e.preventDefault();}catch(_){}});
 
 for(const id of ['modeArcade','modeDamage']){const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{const p=document.getElementById('damagePanel');if(state==='menu'&&p)p.style.display='none';});}
-document.getElementById('btnStart').addEventListener('click',()=>{
+document.getElementById('btnStart').addEventListener('click',async(e)=>{
   if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(true);
+  if(typeof window.__prepareIOSStartActivation==='function')await window.__prepareIOSStartActivation(e);
   saveMenuPreferences();setVehicleClass(getSelectedVehicleClass(),true);TEAM_DEFS=orderedTeamsForClass(currentVehicleClass,getSelectedTeamIndex(currentVehicleClass));
   teamModeEnabled=getSelectedTeamMode();
   activeAICount=getSelectedAICount();
   initAudio();
+  try{if(SND.ctx&&SND.ctx.state==='suspended')await SND.ctx.resume();}catch(_){}
   if(MOBILE_PROFILE){try{renderer.domElement.requestFullscreen&&renderer.domElement.requestFullscreen();}catch(_){}}
   document.getElementById('startOverlay').style.display='none';
   startRace();
+  try{beep(880,0.08,0.18);}catch(_){}
   const iosTouch=document.getElementById('touch');
   if(iosTouch){iosTouch.classList.add('active');iosTouch.style.setProperty('display','block','important');iosTouch.style.setProperty('visibility','visible','important');iosTouch.style.setProperty('opacity','1','important');}
   focusGame();
