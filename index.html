@@ -9555,7 +9555,18 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
         IOS.audioStatus=C.state||'unknown';
       }
       const a=bgmAudio&&bgmAudio();
-      if(a){a.muted=false;try{a.load&&a.load();}catch(_){ }}
+      if(a){
+        a.muted=false;
+        try{a.volume=clamp(bgmVolume()*0.95,0,1);}catch(_){ }
+        // Do NOT call a.load() here. iPhone Safari resets/pauses the media element when load() is called,
+        // and this function runs on every mobile drive-control touch.
+        try{
+          if(state!=='menu'&&typeof bgmEnabled==='function'&&bgmEnabled()&&a.src&&a.paused){
+            const bp=a.play();
+            if(bp&&typeof bp.then==='function')bp.then(()=>{try{BGM.externalActive=true;}catch(_){ }}).catch(()=>{});
+          }
+        }catch(_){ }
+      }
     }catch(e){IOS.audioStatus='error';console.warn('audio unlock failed',reason,e);}
     permissionSummary();
   }
@@ -11195,6 +11206,70 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     setTimeout(resume,180);
     setTimeout(resume,900);
   };
+})();
+
+
+
+/* ============================================================
+   DRIVE INPUT BGM HARD-PERSISTENCE FIX — 2026-06
+   - iPhone drive-control touches must not reload or pause the selected BGM.
+   - Reasserts media-element playback after throttle/brake/DRS/drift/gear/menu button gestures.
+   ============================================================ */
+(function installDriveInputBgmHardPersistenceFix(){
+  const FLAG='__driveInputBgmHardPersistenceFixInstalled';
+  if(window[FLAG])return;
+  window[FLAG]=true;
+
+  function shouldKeepBgmAlive(){
+    try{return state!=='menu'&&typeof bgmEnabled==='function'&&bgmEnabled()&&typeof bgmChoice==='function'&&bgmChoice()!=='builtin';}
+    catch(_){return false;}
+  }
+  function resumeCtx(){
+    try{
+      if(typeof initAudio==='function')initAudio();
+      if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'){
+        const p=SND.ctx.resume();
+        if(p&&typeof p.catch==='function')p.catch(()=>{});
+      }
+    }catch(_){ }
+  }
+  function keepExternalBgmAlive(reason){
+    if(!shouldKeepBgmAlive())return;
+    resumeCtx();
+    try{
+      const a=(typeof bgmAudio==='function')?bgmAudio():document.getElementById('bgmAudio');
+      if(!a||!a.src)return;
+      a.muted=!!(typeof SND!=='undefined'&&SND.muted);
+      try{a.volume=clamp((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95,0,1);}catch(_){ }
+      if(!a.muted&&a.paused){
+        const p=a.play();
+        if(p&&typeof p.then==='function'){
+          p.then(()=>{try{BGM.externalActive=true;BGM.previewInMenu=false;setBgmStatus('재생 중 · '+bgmChoiceLabel(),'ready');}catch(_){ }}).catch(()=>{});
+        }else{
+          try{BGM.externalActive=true;}catch(_){ }
+        }
+      }
+      if(typeof updateBackgroundMusic==='function')updateBackgroundMusic((typeof SND!=='undefined'&&SND.muted)?0:1);
+    }catch(_){ }
+  }
+  window.__keepDriveBgmAlive=keepExternalBgmAlive;
+
+  // Capture mobile driving gestures before/after their handlers. This prevents a single control touch from leaving BGM paused.
+  for(const ev of ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup','click','keydown','keyup']){
+    document.addEventListener(ev,e=>{
+      const t=e.target;
+      const isDriveTouch=!!(t&&((t.id||'').startsWith('t')||(t.closest&&t.closest('#touch'))));
+      const isKeyboard=/^key/i.test(ev);
+      if(isDriveTouch||isKeyboard){
+        setTimeout(()=>keepExternalBgmAlive(ev),0);
+        setTimeout(()=>keepExternalBgmAlive(ev),90);
+        setTimeout(()=>keepExternalBgmAlive(ev),320);
+      }
+    },{capture:false,passive:true});
+  }
+
+  // Race loop safety net. Very light: it only calls play() when the media element is unexpectedly paused.
+  setInterval(()=>keepExternalBgmAlive('interval'),850);
 })();
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
