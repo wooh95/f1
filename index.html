@@ -4866,6 +4866,8 @@ function goToStartMenu(){
   for(const k in keys)keys[k]=false;
   document.getElementById('startOverlay').style.display='flex';
   document.getElementById('resultOverlay').style.display='none';
+  const iosTouch=document.getElementById('touch');
+  if(iosTouch){iosTouch.classList.remove('active');iosTouch.style.setProperty('display','none','important');iosTouch.style.setProperty('visibility','hidden','important');iosTouch.style.setProperty('opacity','0','important');}
   document.getElementById('hud').style.display='none';
   document.getElementById('mirrorFrame').style.display='none';
   document.getElementById('damagePanel').style.display='none';
@@ -9145,8 +9147,10 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
   style.textContent=`
     html.ios-app-html,body.ios-native-app{position:fixed;inset:0;width:100vw;height:100dvh;overflow:hidden;background:#03060a;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
     body.ios-native-app #mobileRotate{display:none!important;}
-    body.ios-native-app #touch{display:none;position:absolute;inset:0;z-index:18;pointer-events:none;touch-action:none;}
-    body.ios-native-app #touch.active{display:block!important;}
+    body.ios-native-app #touch{display:none!important;position:absolute;inset:0;z-index:18;pointer-events:none;touch-action:none;visibility:hidden;opacity:0;}
+    body.ios-native-app #touch.active{display:block!important;visibility:visible;opacity:1;}
+    body.mobile-build.ios-native-app #touch:not(.active){display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}
+    body.mobile-build.ios-native-app #touch.active{display:block!important;visibility:visible!important;opacity:1!important;pointer-events:none!important;}
     body.ios-native-app .driveZone{position:absolute;top:0;bottom:0;width:50vw;pointer-events:auto;touch-action:none;z-index:1;opacity:.18;transition:opacity .08s,background .08s;border:0;}
     body.ios-native-app .driveZone span{position:absolute;top:50%;transform:translateY(-50%);font-weight:900;font-size:15px;letter-spacing:2px;color:rgba(240,247,255,.55);text-shadow:0 1px 3px #000;}
     body.ios-native-app #touchBrakeZone{left:0;background:linear-gradient(90deg,rgba(255,42,60,.30),rgba(255,42,60,.02));}
@@ -9197,10 +9201,15 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
       <div class="tbtn" id="tCam">CAM</div>
       <div class="tbtn" id="tDrift">DRIFT</div>
       <div class="tbtn" id="tDrs">DRS</div>`;
+    root.classList.remove('active');
+    root.setAttribute('aria-hidden','true');
+    root.style.setProperty('display','none','important');
+    root.style.setProperty('visibility','hidden','important');
+    root.style.setProperty('opacity','0','important');
   }
   function setZone(id,key,on){
     const el=document.getElementById(id);if(!el)return;
-    const down=e=>{try{e.preventDefault();e.stopPropagation();el.setPointerCapture&&e.pointerId!=null&&el.setPointerCapture(e.pointerId);}catch(_){} IOS_APP_INPUT[key]=true;touch.t=IOS_APP_INPUT.throttle;touch.b=IOS_APP_INPUT.brake;el.classList.add('on');focusGame();initAudio();};
+    const down=e=>{try{e.preventDefault();e.stopPropagation();el.setPointerCapture&&e.pointerId!=null&&el.setPointerCapture(e.pointerId);}catch(_){} if(!(state==='race'||state==='lights'))return; IOS_APP_INPUT[key]=true;touch.t=IOS_APP_INPUT.throttle;touch.b=IOS_APP_INPUT.brake;el.classList.add('on');focusGame();initAudio();};
     const up=e=>{try{e&&e.preventDefault&&e.preventDefault();e&&e.stopPropagation&&e.stopPropagation();el.releasePointerCapture&&e.pointerId!=null&&el.releasePointerCapture(e.pointerId);}catch(_){} IOS_APP_INPUT[key]=false;touch.t=IOS_APP_INPUT.throttle;touch.b=IOS_APP_INPUT.brake;el.classList.remove('on');};
     for(const ev of ['pointerdown','touchstart','mousedown'])el.addEventListener(ev,down,{passive:false});
     for(const ev of ['pointerup','pointercancel','pointerleave','touchend','touchcancel','mouseup','mouseleave'])el.addEventListener(ev,up,{passive:false});
@@ -9266,9 +9275,25 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
       if(Math.abs(car.steer)<0.012&&Math.abs(IOS_APP_INPUT.smoothed)<0.012)car.steer=0;
     }
   };
+  function setIOSDriveControlsActive(active){
+    const touchRoot=document.getElementById('touch');
+    if(!touchRoot)return;
+    touchRoot.classList.toggle('active',!!active);
+    touchRoot.setAttribute('aria-hidden',active?'false':'true');
+    touchRoot.style.setProperty('display',active?'block':'none','important');
+    touchRoot.style.setProperty('visibility',active?'visible':'hidden','important');
+    touchRoot.style.setProperty('opacity',active?'1':'0','important');
+    if(!active){
+      IOS_APP_INPUT.throttle=false;
+      IOS_APP_INPUT.brake=false;
+      touch.t=false;touch.b=false;touch.l=false;touch.r=false;
+      const zones=touchRoot.querySelectorAll('.driveZone.on');
+      zones.forEach(z=>z.classList.remove('on'));
+    }
+  }
   function uiLoop(){
     const active=(state==='race'||state==='lights');
-    const touchRoot=document.getElementById('touch');if(touchRoot){touchRoot.classList.toggle('active',active);touchRoot.style.display=active?'block':'none';}
+    setIOSDriveControlsActive(active);
     const st=document.getElementById('gyroStatus');
     if(st){
       const src=IOS_APP_INPUT.nativeSeen&&performance.now()-IOS_APP_INPUT.lastNativeT<600?'NATIVE':'WEB';
@@ -9306,6 +9331,8 @@ document.getElementById('btnStart').addEventListener('click',()=>{
   if(MOBILE_PROFILE){try{renderer.domElement.requestFullscreen&&renderer.domElement.requestFullscreen();}catch(_){}}
   document.getElementById('startOverlay').style.display='none';
   startRace();
+  const iosTouch=document.getElementById('touch');
+  if(iosTouch){iosTouch.classList.add('active');iosTouch.style.setProperty('display','block','important');iosTouch.style.setProperty('visibility','visible','important');iosTouch.style.setProperty('opacity','1','important');}
   focusGame();
 });
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
