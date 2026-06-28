@@ -11272,6 +11272,138 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   setInterval(()=>keepExternalBgmAlive('interval'),850);
 })();
 
+
+/* ============================================================
+   HIGH-SPEED GYRO STRAIGHT-LINE STABILITY PATCH — 2026-06
+   - Keeps low-speed gyro response sharp.
+   - At high speed, enlarges the center dead zone, filters sensor jitter,
+     limits tiny steering corrections, and damps yaw/lateral drift only when the phone is nearly centered.
+   ============================================================ */
+(function installHighSpeedGyroStraightLineStabilityPatch(){
+  if(!MOBILE_PROFILE||!(window.IOS_APP_INPUT||typeof IOS_APP_INPUT!=='undefined'))return;
+  const IOS=window.IOS_APP_INPUT||IOS_APP_INPUT;
+  if(IOS.__highSpeedStraightGyroPatch)return;
+  IOS.__highSpeedStraightGyroPatch=true;
+  IOS.highSpeedGyroStability=(()=>{try{return localStorage.getItem('f1GyroHighSpeedStability')!=='0';}catch(_){return true;}})();
+  IOS.gyroStabilityStrength=(()=>{try{return clamp(parseFloat(localStorage.getItem('f1GyroStabilityStrength')||'1.00')||1.00,0.40,1.60);}catch(_){return 1.00;}})();
+  IOS.gyroStableRaw=0;
+  IOS.gyroStableTarget=0;
+  IOS.gyroStraightAssistActive=0;
+
+  const gyroBox=document.getElementById('gyroMenuBox');
+  if(gyroBox&&!document.getElementById('menuGyroStability')){
+    const style=document.createElement('style');
+    style.textContent=`
+      .gyroStabilityBox{margin-top:8px;padding-top:8px;border-top:1px solid rgba(160,190,210,.16);}
+      .gyroStabilityToggle{display:flex;align-items:center;gap:6px;color:#d3e3ee;font-size:10px;font-weight:900;letter-spacing:.35px;}
+      .gyroStabilityToggle input{accent-color:#37ff8b;}
+      .gyroStabilitySens{display:grid;grid-template-columns:52px 1fr 42px;gap:8px;align-items:center;margin-top:7px;color:#93a8b9;font-size:9px;font-weight:900;}
+      .gyroStabilitySens input{width:100%;accent-color:#37ff8b;}
+      .gyroStabilityNote{margin-top:5px;color:#778da0;font-size:8.5px;line-height:1.35;}`;
+    document.head.appendChild(style);
+    const box=document.createElement('div');
+    box.className='gyroStabilityBox';
+    box.innerHTML=`
+      <label class="gyroStabilityToggle"><input type="checkbox" id="menuGyroStability"> 고속 직진 안정화</label>
+      <label class="gyroStabilitySens"><span>강도</span><input id="menuGyroStabilityStrength" type="range" min="0.40" max="1.60" step="0.05" value="1.00"><span id="menuGyroStabilityStrengthValue">1.00x</span></label>
+      <div class="gyroStabilityNote">고속에서 센서 미세 떨림을 줄이고 중앙 근처 조향을 둔감하게 만듭니다. 저속·코너 진입 조향은 최대한 유지됩니다.</div>`;
+    gyroBox.appendChild(box);
+  }
+  const stabilityToggle=document.getElementById('menuGyroStability');
+  const stabilitySlider=document.getElementById('menuGyroStabilityStrength');
+  const stabilityValue=document.getElementById('menuGyroStabilityStrengthValue');
+  function syncStabilityUI(persist=false){
+    if(stabilityToggle)IOS.highSpeedGyroStability=!!stabilityToggle.checked;
+    if(stabilitySlider){
+      const v=parseFloat(stabilitySlider.value);
+      if(Number.isFinite(v))IOS.gyroStabilityStrength=clamp(v,0.40,1.60);
+      if(stabilityValue)stabilityValue.textContent=IOS.gyroStabilityStrength.toFixed(2)+'x';
+      stabilitySlider.disabled=!IOS.highSpeedGyroStability;
+    }
+    if(persist){
+      try{localStorage.setItem('f1GyroHighSpeedStability',IOS.highSpeedGyroStability?'1':'0');}catch(_){ }
+      try{localStorage.setItem('f1GyroStabilityStrength',IOS.gyroStabilityStrength.toFixed(2));}catch(_){ }
+    }
+  }
+  if(stabilityToggle){stabilityToggle.checked=!!IOS.highSpeedGyroStability;stabilityToggle.addEventListener('change',()=>syncStabilityUI(true));}
+  if(stabilitySlider){stabilitySlider.value=(IOS.gyroStabilityStrength||1).toFixed(2);stabilitySlider.addEventListener('input',()=>syncStabilityUI(true),{passive:true});}
+  syncStabilityUI(false);
+
+  function smooth01(x){x=clamp(x,0,1);return x*x*(3-2*x);}
+  function signedPow(v,p){return (v<0?-1:1)*Math.pow(Math.abs(v),p);}
+  function gyroFresh(){
+    return Math.max(IOS.lastNativeT||0,IOS.defWheelLastOrientT||0,IOS.defWheelLastMotionT||0,IOS.defWheelLastAccelT||0,IOS.lastWebT||0,IOS.lastMotionT||0,IOS.lastWheelT||0);
+  }
+  function rawGyro(){
+    try{
+      const fn=window.__iosRawGyroValue||window.__iosWheelRawGyroValue;
+      const v=fn?Number(fn()):Number(IOS.webRaw||IOS.motionRaw||0);
+      return Number.isFinite(v)?clamp(v,-2.4,2.4):0;
+    }catch(_){return 0;}
+  }
+
+  const prevUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const gyroOn=!!IOS.gyroEnabled;
+    // Prevent earlier stacked gyro patches from applying their own steering layer.
+    IOS.gyroEnabled=false;
+    try{prevUpdateInputs(dt);}finally{IOS.gyroEnabled=gyroOn;}
+    if(!gyroOn||!(state==='race'||state==='lights')||!car)return;
+    if(performance.now()-gyroFresh()>2000)return;
+
+    const speed=Math.abs(car.vx||0);
+    const top=Math.max(42,Number(P&&P.topSpeed)||78);
+    const speedRel=clamp(speed/top,0,1);
+    const strength=IOS.highSpeedGyroStability?clamp(IOS.gyroStabilityStrength||1,0.40,1.60):0;
+    const high=smooth01((speedRel-0.38)/0.56)*strength;
+    const raw=rawGyro();
+
+    // Raw sensor stabilization: high-speed steering reacts to intentional rotation, not frame-to-frame noise.
+    const rawRate=lerp(16.0,4.4,clamp(high,0,1));
+    IOS.gyroStableRaw+=clamp(raw-IOS.gyroStableRaw,-rawRate*dt,rawRate*dt);
+    const rawFilter=lerp(18.0,5.6,clamp(high,0,1));
+    const filteredRaw=lerp(IOS.gyroStableRaw,raw,1-Math.exp(-dt*rawFilter));
+    IOS.gyroStableRaw=filteredRaw;
+
+    // Adaptive center dead-zone. At high speed, tiny phone tremors around center are ignored.
+    const dead=lerp(0.010,0.064,clamp(high,0,1));
+    let wheel=Math.abs(filteredRaw)<dead?0:(filteredRaw>0?filteredRaw-dead:filteredRaw+dead)/(1-dead);
+    wheel=clamp(wheel,-1,1);
+
+    // Center shaping: small commands become gentler at high speed, while large deliberate steering remains available.
+    const curve=lerp(1.00,1.62,clamp(high,0,1));
+    wheel=signedPow(wheel,curve);
+    const centerAbs=Math.abs(wheel);
+    const centerHold=smooth01((0.115-centerAbs)/0.115)*clamp(high,0,1);
+
+    const speedDamp=lerp(1.10,0.54,clamp(high,0,1));
+    const maxSteer=lerp(1.00,0.58,clamp(high,0,1));
+    // raw/wheel > 0 means clockwise phone rotation. Game convention is car.steer < 0 for right turn.
+    let target=clamp(-wheel*(IOS.sensitivity||2.40)*speedDamp,-maxSteer,maxSteer);
+    target*=1-0.56*centerHold;
+
+    // Slower target and steering slew at high speed removes twitch without changing low-speed turn-in.
+    const targetFilter=lerp(13.0,4.0,clamp(high,0,1));
+    IOS.smoothed+=clamp(target-IOS.smoothed,-targetFilter*dt,targetFilter*dt);
+    IOS.gyroStableTarget=IOS.smoothed;
+    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*2.10,4.5):4.5;
+    const steerRate=lerp(steerRateBase,Math.max(2.15,steerRateBase*0.46),clamp(high,0,1));
+    car.steer+=clamp(IOS.smoothed-car.steer,-steerRate*dt,steerRate*dt);
+
+    // Straight-line assist only when the phone is nearly centered. It damps yaw/lateral drift, not deliberate cornering.
+    const straightAssist=centerHold*smooth01((speedRel-0.44)/0.42);
+    IOS.gyroStraightAssistActive=straightAssist;
+    if(straightAssist>0.03){
+      const yawDamp=1+straightAssist*1.35*dt;
+      const latDamp=1+straightAssist*0.95*dt;
+      if(Number.isFinite(car.r))car.r/=yawDamp;
+      if(Number.isFinite(car.vy))car.vy/=latDamp;
+    }
+    const snap=lerp(0.006,0.020,clamp(high,0,1));
+    if(Math.abs(car.steer)<snap&&Math.abs(IOS.smoothed)<snap){car.steer=0;IOS.smoothed=0;}
+  };
+})();
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
