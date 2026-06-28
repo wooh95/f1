@@ -106,6 +106,18 @@
   .aiCountOpt input[type=range]{width:230px;accent-color:#36e6ff;}
   #aiCountLabel{display:inline-block;min-width:30px;text-align:right;color:#36e6ff;font-weight:800;font-variant-numeric:tabular-nums;}
 
+  .gyroMenuBox{max-width:560px;margin:0 auto 14px;padding:11px 13px;border:1px solid rgba(54,230,255,.28);border-radius:10px;background:rgba(15,22,31,.72);text-align:left;color:#cdd9e4;box-sizing:border-box;}
+  .gyroMenuTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;}
+  .gyroMenuToggle{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:#e8eef4;letter-spacing:.4px;cursor:pointer;}
+  .gyroMenuToggle input{accent-color:#37ff8b;}
+  #gyroMenuState{font-size:10px;font-weight:900;letter-spacing:1px;color:#37ff8b;border:1px solid rgba(55,255,139,.38);border-radius:999px;padding:3px 8px;white-space:nowrap;}
+  #gyroMenuState.off{color:#ff6676;border-color:rgba(255,102,118,.45);}
+  .gyroMenuSens{display:grid;grid-template-columns:56px 1fr 45px;gap:10px;align-items:center;font-size:11px;font-weight:800;color:#9fb4c4;}
+  .gyroMenuSens input{width:100%;accent-color:#36e6ff;}
+  .gyroMenuSens input:disabled{opacity:.38;}
+  #menuGyroSensValue{text-align:right;color:#fff;font-variant-numeric:tabular-nums;}
+  .gyroMenuNote{margin-top:7px;color:#8298aa;font-size:9px;line-height:1.35;}
+
   /* multi-class vehicle selector */
   .vehicleGrid{display:grid;grid-template-columns:repeat(4,minmax(145px,1fr));gap:9px;margin:0 auto 15px;max-width:850px;text-align:left;}
   .vehicleCard{position:relative;display:block;border:1px solid #30404d;background:linear-gradient(145deg,rgba(26,35,46,.92),rgba(13,18,25,.92));border-radius:10px;padding:10px 10px 9px;cursor:pointer;min-height:108px;overflow:hidden;transition:transform .16s,border-color .16s,box-shadow .16s;}
@@ -285,6 +297,12 @@ body.mobile-build .card .ctl{display:none!important;}
 body.mobile-build .opts{gap:8px;margin-bottom:9px;font-size:11px;}
 body.mobile-build .modeTitle{font-size:9px;letter-spacing:1.5px;margin:8px 0 5px;}
 body.mobile-build .modeHint{font-size:9px;line-height:1.35;margin:0 auto 8px;}
+body.mobile-build .gyroMenuBox{max-width:100%;padding:9px;margin-bottom:9px;border-radius:9px;}
+body.mobile-build .gyroMenuTop{margin-bottom:7px;}
+body.mobile-build .gyroMenuToggle{font-size:10px;}
+body.mobile-build #gyroMenuState{font-size:8px;padding:2px 6px;}
+body.mobile-build .gyroMenuSens{grid-template-columns:42px 1fr 38px;gap:7px;font-size:9px;}
+body.mobile-build .gyroMenuNote{font-size:8px;}
 body.mobile-build .trackGrid{grid-template-columns:1fr 1fr;gap:6px;max-width:100%;}
 body.mobile-build .trackCard{grid-template-columns:46px 1fr;min-height:54px;padding:7px 7px;gap:6px;border-radius:8px;}
 body.mobile-build .trackCard svg{width:44px;height:36px;}
@@ -456,6 +474,15 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       <label><input type="checkbox" id="optTC" checked> 트랙션</label>
       <label><input type="checkbox" id="optABS" checked> ABS</label>
       <label><input type="checkbox" id="optAT" checked> 오토기어</label>
+    </div>
+    <div class="modeTitle">MOBILE GYRO STEERING</div>
+    <div class="gyroMenuBox" id="gyroMenuBox">
+      <div class="gyroMenuTop">
+        <label class="gyroMenuToggle"><input type="checkbox" id="menuGyroEnabled" checked> 자이로 센서 조향 사용</label>
+        <span id="gyroMenuState">GYRO ON</span>
+      </div>
+      <label class="gyroMenuSens"><span>감도</span><input id="menuGyroSens" type="range" min="0.45" max="2.60" step="0.05" value="1.10"><span id="menuGyroSensValue">1.10x</span></label>
+      <div class="gyroMenuNote">iPhone을 핸들처럼 좌우로 기울여 조향합니다. START를 누를 때 현재 각도를 중앙값으로 자동 보정하며, 감도는 주행 중 고정됩니다.</div>
     </div>
     <div class="modeTitle">DRIVING GUIDE</div>
     <div class="guideBox">
@@ -9121,13 +9148,13 @@ function mobileGear(delta){
    NATIVE iPHONE APP CONTROL PATCH
    - Landscape app layout
    - Right half throttle / left half brake
-   - Gyro steering with sensitivity and center calibration
+   - Start-screen gyro ON/OFF and sensitivity setup with automatic center calibration
    - Bottom-left drift and bottom-right DRS
    ============================================================ */
 const IOS_APP_INPUT={
   throttle:false,
   brake:false,
-  gyroEnabled:true,
+  gyroEnabled:(()=>{try{return localStorage.getItem('f1GyroEnabled')!=='0';}catch(_){return true;}})(),
   gyroPermission:false,
   gyroSource:'waiting',
   webRaw:0,
@@ -9167,7 +9194,7 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     body.ios-native-app #tGearDn{right:calc(232px + env(safe-area-inset-right));top:calc(14px + env(safe-area-inset-top));width:74px;height:43px;font-size:10px;}
     body.ios-native-app #tMenu{left:calc(14px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));width:70px;height:42px;font-size:10px;color:#aee7ff;border-color:rgba(54,230,255,.48);}
     body.ios-native-app #tRestart{left:calc(90px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));width:70px;height:42px;font-size:10px;color:#ffd24a;border-color:rgba(255,210,74,.54);}
-    body.ios-native-app #gyroPanel{position:absolute;z-index:8;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);width:min(420px,44vw);min-width:310px;height:54px;padding:7px 10px;box-sizing:border-box;border:1px solid rgba(54,230,255,.35);border-radius:17px;background:rgba(5,10,17,.72);box-shadow:0 8px 28px rgba(0,0,0,.38);backdrop-filter:blur(6px);pointer-events:auto;color:#eaf3fa;font-variant-numeric:tabular-nums;}
+    body.ios-native-app #gyroPanel{display:none!important;position:absolute;z-index:8;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);width:min(420px,44vw);min-width:310px;height:54px;padding:7px 10px;box-sizing:border-box;border:1px solid rgba(54,230,255,.35);border-radius:17px;background:rgba(5,10,17,.72);box-shadow:0 8px 28px rgba(0,0,0,.38);backdrop-filter:blur(6px);pointer-events:auto;color:#eaf3fa;font-variant-numeric:tabular-nums;}
     body.ios-native-app #gyroPanel .gpTop{display:flex;align-items:center;gap:8px;height:20px;}
     body.ios-native-app #gyroPanel button{height:22px;border-radius:10px;padding:0 9px;font-size:9px;letter-spacing:.7px;background:rgba(22,31,43,.9);border:1px solid rgba(255,255,255,.22);color:#fff;}
     body.ios-native-app #gyroEnable.on{background:#37ff8b;color:#06110b;border-color:#37ff8b;}
@@ -9180,7 +9207,7 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     body.ios-native-app #mobileHint{display:none!important;}
     body.ios-native-app #dash{bottom:calc(6px + env(safe-area-inset-bottom))!important;}
     body.ios-native-app #mapWrap{bottom:calc(92px + env(safe-area-inset-bottom))!important;}
-    @media(max-width:760px){body.ios-native-app #gyroPanel{top:calc(61px + env(safe-area-inset-top));width:min(360px,58vw);min-width:284px;height:50px}body.ios-native-app #tGearDn{right:calc(164px + env(safe-area-inset-right));top:calc(61px + env(safe-area-inset-top));}body.ios-native-app #tGearUp{right:calc(84px + env(safe-area-inset-right));top:calc(61px + env(safe-area-inset-top));}body.ios-native-app #tPit{display:none!important;}}
+    @media(max-width:760px){body.ios-native-app #tGearDn{right:calc(164px + env(safe-area-inset-right));top:calc(61px + env(safe-area-inset-top));}body.ios-native-app #tGearUp{right:calc(84px + env(safe-area-inset-right));top:calc(61px + env(safe-area-inset-top));}body.ios-native-app #tPit{display:none!important;}}
   `;
   document.head.appendChild(style);
   const root=document.getElementById('touch');
@@ -9188,11 +9215,6 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
     root.innerHTML=`
       <div class="driveZone" id="touchBrakeZone"><span>BRAKE</span></div>
       <div class="driveZone" id="touchThrottleZone"><span>THROTTLE</span></div>
-      <div id="gyroPanel" aria-label="Gyro steering sensitivity">
-        <div class="gpTop"><button type="button" id="gyroEnable" class="on">GYRO</button><button type="button" id="gyroCalibrate">CENTER</button><span id="gyroStatus">NATIVE READY</span></div>
-        <label>SENS <input id="gyroSens" type="range" min="0.45" max="2.60" step="0.05" value="${IOS_APP_INPUT.sensitivity.toFixed(2)}"><span id="gyroSensValue">${IOS_APP_INPUT.sensitivity.toFixed(2)}x</span></label>
-        <div id="gyroMeter"><i></i></div>
-      </div>
       <div class="tbtn" id="tMenu">MENU</div>
       <div class="tbtn" id="tRestart">RESTART</div>
       <div class="tbtn" id="tGearDn">GEAR−</div>
@@ -9216,15 +9238,33 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
   }
   setZone('touchThrottleZone','throttle');
   setZone('touchBrakeZone','brake');
-  const sens=document.getElementById('gyroSens'),sensVal=document.getElementById('gyroSensValue');
-  if(sens){
-    const apply=()=>{IOS_APP_INPUT.sensitivity=parseFloat(sens.value)||1.1;if(sensVal)sensVal.textContent=IOS_APP_INPUT.sensitivity.toFixed(2)+'x';try{localStorage.setItem('f1GyroSensitivity',IOS_APP_INPUT.sensitivity.toFixed(2));}catch(_){}};
-    sens.addEventListener('input',apply,{passive:true});apply();
+  const menuGyroEnabled=document.getElementById('menuGyroEnabled');
+  const menuGyroSens=document.getElementById('menuGyroSens');
+  const menuGyroSensValue=document.getElementById('menuGyroSensValue');
+  const gyroMenuState=document.getElementById('gyroMenuState');
+  function applyMenuGyroSettings(persist=true){
+    if(menuGyroEnabled)IOS_APP_INPUT.gyroEnabled=!!menuGyroEnabled.checked;
+    if(menuGyroSens){
+      const v=parseFloat(menuGyroSens.value);
+      if(Number.isFinite(v))IOS_APP_INPUT.sensitivity=v;
+    }
+    if(menuGyroSensValue)menuGyroSensValue.textContent=IOS_APP_INPUT.sensitivity.toFixed(2)+'x';
+    if(gyroMenuState){
+      gyroMenuState.textContent=IOS_APP_INPUT.gyroEnabled?'GYRO ON':'GYRO OFF';
+      gyroMenuState.classList.toggle('off',!IOS_APP_INPUT.gyroEnabled);
+    }
+    if(menuGyroSens)menuGyroSens.disabled=!IOS_APP_INPUT.gyroEnabled;
+    if(persist){
+      try{localStorage.setItem('f1GyroEnabled',IOS_APP_INPUT.gyroEnabled?'1':'0');}catch(_){}
+      try{localStorage.setItem('f1GyroSensitivity',IOS_APP_INPUT.sensitivity.toFixed(2));}catch(_){}
+    }
   }
+  if(menuGyroEnabled){menuGyroEnabled.checked=!!IOS_APP_INPUT.gyroEnabled;menuGyroEnabled.addEventListener('change',()=>applyMenuGyroSettings(true));}
+  if(menuGyroSens){menuGyroSens.value=IOS_APP_INPUT.sensitivity.toFixed(2);menuGyroSens.addEventListener('input',()=>applyMenuGyroSettings(true),{passive:true});}
+  applyMenuGyroSettings(false);
+  window.__applyMenuGyroSettings=applyMenuGyroSettings;
   function rawGyro(){return IOS_APP_INPUT.nativeSeen&&performance.now()-IOS_APP_INPUT.lastNativeT<500?IOS_APP_INPUT.nativeRaw:IOS_APP_INPUT.webRaw;}
-  function centerGyro(){IOS_APP_INPUT.zero=rawGyro();IOS_APP_INPUT.smoothed=0;showMsg('GYRO CENTERED','',520);}
-  const cal=document.getElementById('gyroCalibrate');if(cal)cal.addEventListener('pointerdown',e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} centerGyro();},{passive:false});
-  const en=document.getElementById('gyroEnable');if(en)en.addEventListener('pointerdown',async e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} IOS_APP_INPUT.gyroEnabled=!IOS_APP_INPUT.gyroEnabled;en.classList.toggle('on',IOS_APP_INPUT.gyroEnabled);if(IOS_APP_INPUT.gyroEnabled)await requestWebGyroPermission();},{passive:false});
+  function centerGyro(){IOS_APP_INPUT.zero=rawGyro();IOS_APP_INPUT.smoothed=0;if(state!=='menu')showMsg('GYRO CENTERED','',520);}
   function appTap(id,fn){
     const el=document.getElementById(id);if(!el)return;
     let last=0;
@@ -9250,7 +9290,7 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
   },true);
   window.F1NativeMotion={
     setSteer(v){const x=Number(v);if(Number.isFinite(x)){IOS_APP_INPUT.nativeRaw=clamp(x,-1.8,1.8);IOS_APP_INPUT.nativeSeen=true;IOS_APP_INPUT.lastNativeT=performance.now();}},
-    setEnabled(v){IOS_APP_INPUT.gyroEnabled=!!v;const b=document.getElementById('gyroEnable');if(b)b.classList.toggle('on',IOS_APP_INPUT.gyroEnabled);},
+    setEnabled(v){IOS_APP_INPUT.gyroEnabled=!!v;const b=document.getElementById('menuGyroEnabled');if(b)b.checked=IOS_APP_INPUT.gyroEnabled;applyMenuGyroSettings(true);},
     center:centerGyro
   };
   const oldUpdateInputs=updateInputs;
@@ -9294,21 +9334,16 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
   function uiLoop(){
     const active=(state==='race'||state==='lights');
     setIOSDriveControlsActive(active);
-    const st=document.getElementById('gyroStatus');
-    if(st){
-      const src=IOS_APP_INPUT.nativeSeen&&performance.now()-IOS_APP_INPUT.lastNativeT<600?'NATIVE':'WEB';
-      st.textContent=IOS_APP_INPUT.gyroEnabled?(src+' GYRO'):'GYRO OFF';
-      st.style.color=IOS_APP_INPUT.gyroEnabled?'#36e6ff':'#ff6676';
-    }
-    const meter=document.querySelector('#gyroMeter i');if(meter)meter.style.left=(50+clamp(IOS_APP_INPUT.smoothed,-1,1)*47).toFixed(1)+'%';
     requestAnimationFrame(uiLoop);
   }
   if(!IOS_APP_INPUT.rafStarted){IOS_APP_INPUT.rafStarted=true;requestAnimationFrame(uiLoop);}  
   document.getElementById('btnStart')?.addEventListener('pointerdown',async()=>{
-    IOS_APP_INPUT.gyroEnabled=true;const b=document.getElementById('gyroEnable');if(b)b.classList.add('on');
-    await requestWebGyroPermission();
+    applyMenuGyroSettings(true);
+    if(IOS_APP_INPUT.gyroEnabled)await requestWebGyroPermission();
+    else IOS_APP_INPUT.gyroPermission=false;
     try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{});}catch(_){ }
-    setTimeout(centerGyro,180);
+    if(IOS_APP_INPUT.gyroEnabled)setTimeout(centerGyro,180);
+    else{IOS_APP_INPUT.zero=rawGyro();IOS_APP_INPUT.smoothed=0;IOS_APP_INPUT.steer=0;car.steer=0;}
   },{passive:true});
 })();
 
@@ -9324,6 +9359,7 @@ document.addEventListener('gesturestart',e=>{try{e.preventDefault();}catch(_){}}
 
 for(const id of ['modeArcade','modeDamage']){const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{const p=document.getElementById('damagePanel');if(state==='menu'&&p)p.style.display='none';});}
 document.getElementById('btnStart').addEventListener('click',()=>{
+  if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(true);
   saveMenuPreferences();setVehicleClass(getSelectedVehicleClass(),true);TEAM_DEFS=orderedTeamsForClass(currentVehicleClass,getSelectedTeamIndex(currentVehicleClass));
   teamModeEnabled=getSelectedTeamMode();
   activeAICount=getSelectedAICount();
