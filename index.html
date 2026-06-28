@@ -9931,6 +9931,483 @@ try{document.documentElement.classList.add('ios-app-html');document.body.classLi
 })();
 
 
+
+
+/* ============================================================
+   iOS LANDSCAPE LOCK + WHEEL-STYLE GYRO STEERING PATCH — 2026-06
+   - Tries fullscreen + Screen Orientation API landscape lock from user gestures.
+   - Adds a landscape-only viewport guard for iPhone Safari/PWA fallback.
+   - Overrides the final mobile steering path so clockwise phone rotation in landscape steers right.
+   ============================================================ */
+(function installIOSLandscapeWheelSteeringPatch(){
+  if(!MOBILE_PROFILE)return;
+  const IOS=window.IOS_APP_INPUT||IOS_APP_INPUT;
+  IOS.wheelRaw=0;
+  IOS.wheelMotionRaw=0;
+  IOS.wheelOrientRaw=0;
+  IOS.wheelAccelRaw=0;
+  IOS.wheelLastMotionT=0;
+  IOS.wheelLastOrientT=0;
+  IOS.wheelLastAccelT=0;
+  IOS.landscapeLockState='idle';
+  IOS.landscapeLockTried=false;
+
+  try{
+    const metaNames=[
+      ['x5-orientation','landscape'],
+      ['screen-orientation','landscape'],
+      ['apple-mobile-web-app-title','F1 Racing']
+    ];
+    for(const [name,content] of metaNames){
+      if(!document.querySelector('meta[name="'+name+'"]')){
+        const m=document.createElement('meta');m.name=name;m.content=content;document.head.appendChild(m);
+      }
+    }
+    if(!document.querySelector('link[rel="manifest"]')){
+      const manifest={name:'F1 Racing Mobile',short_name:'F1 Racing',display:'fullscreen',orientation:'landscape',background_color:'#03060a',theme_color:'#03060a',start_url:location.pathname+location.search};
+      const l=document.createElement('link');l.rel='manifest';l.href='data:application/manifest+json,'+encodeURIComponent(JSON.stringify(manifest));document.head.appendChild(l);
+    }
+  }catch(_){ }
+
+  const landscapeStyle=document.createElement('style');
+  landscapeStyle.textContent=`
+    body.ios-native-app.ios-landscape-ok::after{display:none!important;}
+    body.ios-native-app.ios-portrait-guard::after{content:'가로모드 고정 시도 중 · iPhone을 가로로 돌리면 조향 센서가 정상 동작합니다';position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top));transform:translateX(-50%);z-index:99;max-width:92vw;padding:7px 12px;border-radius:999px;background:rgba(4,8,14,.84);border:1px solid rgba(54,230,255,.45);color:#eaf7ff;font-size:10px;font-weight:900;letter-spacing:.4px;box-shadow:0 6px 22px rgba(0,0,0,.42);pointer-events:none;text-align:center;}
+    body.ios-native-app #gyroDiagStatus .landscapeLockState{color:#36e6ff;}
+  `;
+  document.head.appendChild(landscapeStyle);
+
+  function screenAngle(){
+    const so=screen&&screen.orientation;
+    if(so&&Number.isFinite(so.angle))return Number(so.angle);
+    if(Number.isFinite(window.orientation))return Number(window.orientation);
+    return (innerWidth>=innerHeight)?90:0;
+  }
+  function viewportLandscape(){
+    const a=screenAngle();
+    return Math.abs(a)===90||innerWidth>=innerHeight;
+  }
+  function updateLandscapeClass(){
+    const ok=viewportLandscape();
+    document.body.classList.toggle('ios-landscape-ok',ok);
+    document.body.classList.toggle('ios-portrait-guard',!ok);
+    return ok;
+  }
+  updateLandscapeClass();
+  addEventListener('resize',()=>setTimeout(updateLandscapeClass,60),{passive:true});
+  addEventListener('orientationchange',()=>setTimeout(()=>{updateLandscapeClass();recenterWheelSteering('orientationchange');},220),{passive:true});
+
+  async function requestFullscreenBestEffort(){
+    const el=document.documentElement;
+    try{
+      if(document.fullscreenElement)return true;
+      const fn=el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen;
+      if(fn){
+        const r=fn.call(el,{navigationUI:'hide'});
+        if(r&&typeof r.then==='function')await r;
+        return true;
+      }
+    }catch(_){ }
+    return false;
+  }
+  async function forceLandscapeBestEffort(reason='manual'){
+    IOS.landscapeLockTried=true;
+    IOS.landscapeLockState='requesting';
+    try{await requestFullscreenBestEffort();}catch(_){ }
+    let locked=false;
+    try{
+      if(screen&&screen.orientation&&typeof screen.orientation.lock==='function'){
+        try{await screen.orientation.lock('landscape');locked=true;}
+        catch(_){try{await screen.orientation.lock('landscape-primary');locked=true;}catch(__){}}
+      }
+    }catch(_){ }
+    IOS.landscapeLockState=locked?'locked':'fallback';
+    updateLandscapeClass();
+    if(state!=='menu'&&!viewportLandscape())showMsg('ROTATE iPHONE TO LANDSCAPE','warn',1100);
+    return locked;
+  }
+  window.__forceIOSLandscape=forceLandscapeBestEffort;
+
+  function normDeg(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function currentCenter(){
+    if(!IOS.orientationCenter&&IOS.orientationSample)IOS.orientationCenter={...IOS.orientationSample};
+    return IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:performance.now()};
+  }
+  function gravityWheelRawFromAccel(a){
+    if(!a)return 0;
+    const x=Number(a.x)||0;
+    const y=Number(a.y)||0;
+    const mag=Math.hypot(x,y);
+    if(mag<1.4)return 0;
+    const angle=Math.atan2(x,y)*180/Math.PI;
+    if(!Number.isFinite(IOS.accelWheelCenter))IOS.accelWheelCenter=angle;
+    let d=normDeg(angle,IOS.accelWheelCenter);
+    // Positive raw means clockwise wheel rotation.  Game steering uses negative for right.
+    return clamp(-d/24,-2.2,2.2);
+  }
+  function orientationWheelRaw(sample){
+    const c=currentCenter();
+    const da=normDeg(Number(sample.alpha),Number(c.alpha));
+    const db=(Number(sample.beta)||0)-(Number(c.beta)||0);
+    const dg=(Number(sample.gamma)||0)-(Number(c.gamma)||0);
+    const a=screenAngle();
+    // Phone used like a steering wheel: alpha/screen-normal rotation dominates.
+    // By right-hand convention, clockwise screen rotation is usually negative alpha; invert it so clockwise => positive raw.
+    const wheelAlpha=Number.isFinite(da)?-da/22:0;
+    // Fallback for devices that give weak/quantized alpha: landscape beta/gamma tilt axis.
+    const wheelTilt=(Math.abs(a)===90)?((a===90||a===-270)?db:-db)/21:(dg/21);
+    let raw=0;
+    if(Math.abs(wheelAlpha)>0.015)raw=wheelAlpha+wheelTilt*0.08;
+    else raw=wheelTilt;
+    return clamp(raw,-2.3,2.3);
+  }
+  function recenterWheelSteering(reason='center'){
+    IOS.orientationCenter=IOS.orientationSample?{...IOS.orientationSample}:{alpha:0,beta:0,gamma:0,t:performance.now()};
+    IOS.wheelMotionRaw=0;
+    IOS.wheelOrientRaw=0;
+    IOS.wheelAccelRaw=0;
+    IOS.webRaw=0;
+    IOS.motionRaw=0;
+    IOS.nativeRaw=0;
+    IOS.smoothed=0;
+    IOS.zero=0;
+    IOS.accelWheelCenter=undefined;
+    if(car)car.steer=0;
+  }
+  window.__centerIOSGyro=recenterWheelSteering;
+  window.__centerIOSWheelGyro=recenterWheelSteering;
+
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const sample={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:performance.now()};
+      if(!Number.isFinite(sample.alpha)&&!Number.isFinite(sample.beta)&&!Number.isFinite(sample.gamma))return;
+      IOS.orientationSample=sample;
+      if(!IOS.orientationCenter)IOS.orientationCenter={...sample};
+      IOS.wheelOrientRaw=orientationWheelRaw(sample);
+      IOS.webRaw=IOS.wheelOrientRaw;
+      IOS.wheelLastOrientT=sample.t;
+      IOS.lastWebT=sample.t;
+    }catch(_){ }
+  },true);
+
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const now=performance.now();
+      const dt=clamp((now-(IOS.wheelLastMotionT||now))/1000,0.004,0.060);
+      const rr=e.rotationRate||{};
+      const rz=Number(rr.alpha);
+      if(Number.isFinite(rz)&&Math.abs(rz)>0.025){
+        // Clockwise screen-normal rotation should steer right, so use negative alpha-rate as positive raw.
+        IOS.wheelMotionRaw=clamp((IOS.wheelMotionRaw||0)+(-rz*dt)/22,-2.3,2.3);
+        IOS.motionRaw=IOS.wheelMotionRaw;
+        IOS.wheelLastMotionT=now;
+        IOS.lastMotionT=now;
+      }
+      const accelRaw=gravityWheelRawFromAccel(e.accelerationIncludingGravity);
+      if(Number.isFinite(accelRaw)&&Math.abs(accelRaw)>0.006){
+        IOS.wheelAccelRaw=accelRaw;
+        IOS.wheelLastAccelT=now;
+      }
+    }catch(_){ }
+  },true);
+
+  window.__iosWheelRawGyroValue=function(){
+    if(IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<650)return clamp(Number(IOS.nativeRaw)||0,-2.3,2.3);
+    const now=performance.now();
+    let raw=0;
+    const hasOrient=IOS.wheelLastOrientT&&now-IOS.wheelLastOrientT<1100;
+    const hasMotion=IOS.wheelLastMotionT&&now-IOS.wheelLastMotionT<1400;
+    const hasAccel=IOS.wheelLastAccelT&&now-IOS.wheelLastAccelT<1100;
+    if(hasOrient&&Math.abs(IOS.wheelOrientRaw||0)>0.012)raw=IOS.wheelOrientRaw;
+    else if(hasMotion)raw=IOS.wheelMotionRaw||0;
+    else if(hasAccel)raw=IOS.wheelAccelRaw||0;
+    else raw=Number(IOS.webRaw)||0;
+    if(IOS.gyroInvert)raw=-raw;
+    return clamp(raw,-2.3,2.3);
+  };
+  window.__iosRawGyroValue=window.__iosWheelRawGyroValue;
+
+  const previousUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const gyroWasEnabled=!!IOS.gyroEnabled;
+    // Disable older mobile-gyro wrappers during their own pass; we apply the definitive wheel mapping below.
+    IOS.gyroEnabled=false;
+    try{previousUpdateInputs(dt);}finally{IOS.gyroEnabled=gyroWasEnabled;}
+    if(!gyroWasEnabled||!(state==='race'||state==='lights'))return;
+    const fresh=Math.max(IOS.lastNativeT||0,IOS.wheelLastOrientT||0,IOS.wheelLastMotionT||0,IOS.wheelLastAccelT||0,IOS.lastWebT||0,IOS.lastMotionT||0);
+    if(performance.now()-fresh>1900)return;
+    const raw=window.__iosWheelRawGyroValue();
+    const dead=0.010;
+    let normalized=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
+    const speedRel=clamp(Math.abs(car.vx||0)/Math.max(42,P.topSpeed||78),0,1);
+    const speedDamp=lerp(1.10,0.70,speedRel);
+    // raw > 0 = clockwise phone rotation.  In the physics model, negative steer turns right.
+    let target=clamp(-normalized*(IOS.sensitivity||2.40)*speedDamp,-1,1);
+    IOS.smoothed+=clamp(target-IOS.smoothed,-dt*9.8,dt*9.8);
+    const rate=Number.isFinite(P.steerRate)?Math.max(P.steerRate*2.35,4.9):4.9;
+    car.steer+=clamp(IOS.smoothed-car.steer,-rate*dt,rate*dt);
+    if(Math.abs(car.steer)<0.008&&Math.abs(IOS.smoothed)<0.008)car.steer=0;
+  };
+
+  const oldPrepare=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(e){
+    try{await forceLandscapeBestEffort('start');}catch(_){ }
+    if(oldPrepare)await oldPrepare(e);
+    recenterWheelSteering('start');
+    setTimeout(()=>recenterWheelSteering('start-delay'),260);
+    return true;
+  };
+
+  const startBtn=document.getElementById('btnStart');
+  if(startBtn){
+    const run=e=>{forceLandscapeBestEffort(e.type);};
+    for(const ev of ['pointerdown','touchstart','click'])startBtn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+  for(const ev of ['pointerdown','touchstart']){
+    document.addEventListener(ev,()=>{if(state==='menu')forceLandscapeBestEffort('first gesture');},{capture:true,passive:true,once:false});
+  }
+
+  setInterval(()=>{
+    updateLandscapeClass();
+    const d=document.getElementById('gyroDiagStatus');
+    if(d&&state==='menu'){
+      const raw=(window.__iosWheelRawGyroValue?window.__iosWheelRawGyroValue():0);
+      const txt=d.textContent||'';
+      if(!/LOCK:/.test(txt))d.textContent=txt+' · LOCK: '+IOS.landscapeLockState+' · WHEEL '+raw.toFixed(2);
+    }
+  },1200);
+})();
+
+/* ============================================================
+   iOS LANDSCAPE LOCK + WHEEL-STYLE GYRO STEERING PATCH — 2026-06
+   - Tries real landscape orientation lock on the first user gesture.
+   - Falls back to a visual landscape stage when Safari keeps portrait.
+   - Uses phone-as-steering-wheel rotation: clockwise -> right, counter-clockwise -> left.
+   - Disables earlier gyro wrappers while preserving throttle/brake touch zones.
+   ============================================================ */
+(function installIOSLandscapeWheelSteeringPatch(){
+  if(!MOBILE_PROFILE)return;
+  const IOS=window.IOS_APP_INPUT||IOS_APP_INPUT;
+  IOS.forceLandscape=true;
+  IOS.wheelAngle=null;
+  IOS.wheelCenter=null;
+  IOS.wheelRaw=0;
+  IOS.lastWheelT=0;
+  IOS.clockwiseRight=true;
+  IOS.gyroInvert=false;
+  try{localStorage.setItem('f1GyroInvert','0');}catch(_){ }
+
+  const style=document.createElement('style');
+  style.textContent=`
+    body.ios-native-app.ios-landscape-stage-ready{background:#03060a;overflow:hidden!important;}
+    #iosLandscapeStage{position:fixed;left:0;top:0;overflow:hidden;transform-origin:0 0;background:#03060a;z-index:0;}
+    body.ios-native-app.ios-force-portrait-rotated #iosLandscapeStage{box-shadow:0 0 0 9999px #03060a;}
+    body.ios-native-app.ios-force-portrait-rotated #iosLandscapeStage canvas{display:block;}
+    body.ios-native-app #iosLandscapeStage>.overlay,body.ios-native-app #iosLandscapeStage>#hud,body.ios-native-app #iosLandscapeStage>#touch,body.ios-native-app #iosLandscapeStage>#vig,body.ios-native-app #iosLandscapeStage>#err,body.ios-native-app #iosLandscapeStage>#mirrorFrame,body.ios-native-app #iosLandscapeStage>#msg,body.ios-native-app #iosLandscapeStage>#lights{position:absolute;}
+    .iosLandscapeBadge{position:absolute;right:calc(10px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));z-index:90;padding:5px 9px;border:1px solid rgba(55,255,139,.45);border-radius:999px;background:rgba(4,9,13,.62);color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.8px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35);}
+    body:not(.ios-force-portrait-rotated) .iosLandscapeBadge{display:none;}
+  `;
+  document.head.appendChild(style);
+
+  function ensureLandscapeStage(){
+    let stage=document.getElementById('iosLandscapeStage');
+    if(stage)return stage;
+    stage=document.createElement('div');
+    stage.id='iosLandscapeStage';
+    const current=document.currentScript;
+    const nodes=[...document.body.childNodes].filter(n=>n!==current&&n!==stage);
+    for(const n of nodes)stage.appendChild(n);
+    document.body.insertBefore(stage,current||null);
+    const badge=document.createElement('div');
+    badge.className='iosLandscapeBadge';
+    badge.textContent='LANDSCAPE LOCK';
+    stage.appendChild(badge);
+    document.body.classList.add('ios-landscape-stage-ready');
+    return stage;
+  }
+
+  function viewportSize(){
+    const vv=window.visualViewport;
+    const sw=Math.max(1,Math.round(vv?vv.width:window.innerWidth));
+    const sh=Math.max(1,Math.round(vv?vv.height:window.innerHeight));
+    return {screenW:sw,screenH:sh,logicalW:Math.max(sw,sh),logicalH:Math.min(sw,sh),portrait:sh>sw};
+  }
+
+  function applyLandscapeViewport(){
+    const stage=ensureLandscapeStage();
+    const v=viewportSize();
+    document.body.classList.toggle('ios-force-portrait-rotated',v.portrait);
+    stage.style.width=v.logicalW+'px';
+    stage.style.height=v.logicalH+'px';
+    if(v.portrait){
+      stage.style.transform='translate('+v.screenW+'px,0px) rotate(90deg)';
+    }else{
+      stage.style.transform='none';
+    }
+    try{
+      if(renderer&&camera){
+        camera.aspect=v.logicalW/v.logicalH;
+        camera.updateProjectionMatrix();
+        renderer.setSize(v.logicalW,v.logicalH,false);
+        renderer.domElement.style.width=v.logicalW+'px';
+        renderer.domElement.style.height=v.logicalH+'px';
+      }
+    }catch(_){ }
+    try{window.__IOS_LOGICAL_VIEWPORT={width:v.logicalW,height:v.logicalH,portraitRotated:v.portrait};}catch(_){ }
+  }
+
+  async function requestRealLandscapeLock(reason='gesture'){
+    applyLandscapeViewport();
+    try{
+      const el=document.documentElement;
+      if(!document.fullscreenElement&&el.requestFullscreen){
+        await el.requestFullscreen({navigationUI:'hide'}).catch(()=>{});
+      }
+    }catch(_){ }
+    try{
+      if(screen.orientation&&screen.orientation.lock){
+        await screen.orientation.lock('landscape').catch(()=>{});
+      }
+    }catch(_){ }
+    setTimeout(applyLandscapeViewport,80);
+    setTimeout(applyLandscapeViewport,360);
+    return true;
+  }
+  window.__forceIOSLandscapeLock=requestRealLandscapeLock;
+  window.__applyIOSLandscapeViewport=applyLandscapeViewport;
+
+  applyLandscapeViewport();
+  for(const ev of ['resize','orientationchange'])window.addEventListener(ev,()=>setTimeout(applyLandscapeViewport,60),{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>setTimeout(applyLandscapeViewport,40),{passive:true});
+  for(const ev of ['pointerdown','touchstart']){
+    document.addEventListener(ev,()=>requestRealLandscapeLock(ev),{capture:true,passive:true,once:false});
+  }
+
+  function normDeg(d){
+    if(!Number.isFinite(d))return 0;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function wheelAngleFromGravity(a){
+    if(!a)return null;
+    const ax=Number(a.x),ay=Number(a.y);
+    if(!Number.isFinite(ax)||!Number.isFinite(ay))return null;
+    if(Math.hypot(ax,ay)<1.6)return null;
+    // Screen-plane wheel angle.  Positive delta is treated as clockwise rotation.
+    return Math.atan2(ax,-ay)*180/Math.PI;
+  }
+  function wheelRawFromOrientation(sample,center){
+    if(!sample||!center)return 0;
+    const da=normDeg((Number(sample.alpha)||0)-(Number(center.alpha)||0));
+    const db=(Number(sample.beta)||0)-(Number(center.beta)||0);
+    const dg=(Number(sample.gamma)||0)-(Number(center.gamma)||0);
+    const so=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+    let roll=0;
+    if(Math.abs(so)===90)roll=(so===90?db:-db);
+    else roll=dg;
+    // Alpha captures wheel-like rotation on many iPhones; beta/gamma gives a fallback when alpha is noisy.
+    const alphaPart=Number.isFinite(da)?da/36:0;
+    const rollPart=Number.isFinite(roll)?roll/42:0;
+    return clamp((Math.abs(alphaPart)>0.015?alphaPart:0)+rollPart*0.32,-2.2,2.2);
+  }
+  function centerWheelSteering(){
+    if(IOS.wheelAngle!==null&&Number.isFinite(IOS.wheelAngle))IOS.wheelCenter=IOS.wheelAngle;
+    if(IOS.orientationSample)IOS.orientationCenter=IOS.orientationSample;
+    IOS.motionRaw=0;IOS.webRaw=0;IOS.wheelRaw=0;IOS.zero=0;IOS.smoothed=0;
+    if(car)car.steer=0;
+    try{if(typeof diagFinal==='function')diagFinal('CENTER');}catch(_){ }
+  }
+  window.__centerIOSGyro=centerWheelSteering;
+
+  const oldMotionListenerMarker='installed by previous patches';
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const ang=wheelAngleFromGravity(e.accelerationIncludingGravity);
+      if(ang===null)return;
+      IOS.wheelAngle=ang;
+      if(IOS.wheelCenter===null||!Number.isFinite(IOS.wheelCenter))IOS.wheelCenter=ang;
+      IOS.wheelRaw=clamp(normDeg(ang-IOS.wheelCenter)/34,-2.4,2.4);
+      IOS.lastWheelT=performance.now();
+      IOS.lastMotionT=IOS.lastWheelT;
+    }catch(_){ }
+  },true);
+
+  const previousRaw=window.__iosRawGyroValue;
+  window.__iosRawGyroValue=function(){
+    let raw=0;
+    const now=performance.now();
+    if(IOS.lastWheelT&&now-IOS.lastWheelT<850){
+      raw=IOS.wheelRaw||0;
+    }else if(IOS.nativeSeen&&now-(IOS.lastNativeT||0)<650){
+      raw=Number(IOS.nativeRaw)||0;
+    }else if(IOS.orientationSample){
+      raw=wheelRawFromOrientation(IOS.orientationSample,IOS.orientationCenter||IOS.orientationSample);
+    }else if(previousRaw){
+      raw=Number(previousRaw())||0;
+    }
+    // Required convention: raw positive = clockwise phone rotation = right steering.
+    if(IOS.gyroInvert)raw=-raw;
+    return clamp(raw,-2.4,2.4);
+  };
+
+  const inv=document.getElementById('menuGyroInvert');
+  if(inv){
+    inv.checked=false;
+    IOS.gyroInvert=false;
+    const label=inv.closest('label');
+    if(label)label.lastChild.textContent=' 조향 방향 반전(기기 축이 반대로 들어올 때만 사용)';
+  }
+  const note=document.querySelector('#gyroMenuBox .gyroMenuNote');
+  if(note&&note.firstChild&&note.firstChild.nodeType===3){
+    note.firstChild.nodeValue='START를 누르면 화면을 가로모드로 고정하고 오디오·자이로 권한을 요청합니다. 가로모드 기준으로 휴대폰을 시계방향으로 돌리면 오른쪽, 반시계방향으로 돌리면 왼쪽으로 조향합니다. 현재 각도는 START 시 중앙값으로 자동 보정됩니다. ';
+  }
+
+  const startBtn=document.getElementById('btnStart');
+  if(startBtn){
+    const run=()=>{requestRealLandscapeLock('start');setTimeout(centerWheelSteering,260);};
+    for(const ev of ['pointerdown','touchstart','click'])startBtn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+  const gyroBtn=document.getElementById('gyroPermissionBtn');
+  if(gyroBtn){
+    const run=()=>{requestRealLandscapeLock('gyro');setTimeout(centerWheelSteering,650);};
+    for(const ev of ['pointerdown','touchstart','click'])gyroBtn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+
+  const previousUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const gyroWanted=!!IOS.gyroEnabled;
+    IOS.gyroEnabled=false; // prevent earlier stacked gyro patches from applying a second steering layer
+    try{previousUpdateInputs(dt);}finally{IOS.gyroEnabled=gyroWanted;}
+    if(!gyroWanted||!(state==='race'||state==='lights'))return;
+    const fresh=Math.max(IOS.lastWheelT||0,IOS.lastWebT||0,IOS.lastNativeT||0,IOS.lastMotionT||0);
+    if(performance.now()-fresh>1800)return;
+    const raw=window.__iosRawGyroValue();
+    const dead=0.006;
+    let normalized=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
+    const speedRel=clamp(Math.abs(car.vx||0)/Math.max(42,P.topSpeed||80),0,1);
+    const speedDamp=lerp(1.12,0.74,speedRel);
+    // Game convention: positive car.steer = left.  Therefore clockwise/right raw must become negative steer.
+    const target=clamp(-normalized*(IOS.sensitivity||2.40)*speedDamp,-1,1);
+    IOS.smoothed+=clamp(target-IOS.smoothed,-dt*10.5,dt*10.5);
+    const rate=Number.isFinite(P.steerRate)?Math.max(P.steerRate*2.35,5.0):5.0;
+    car.steer+=clamp(IOS.smoothed-car.steer,-rate*dt,rate*dt);
+    if(Math.abs(car.steer)<0.006&&Math.abs(IOS.smoothed)<0.006)car.steer=0;
+  };
+
+  setInterval(applyLandscapeViewport,1000);
+})();
+
+
 mobileTap('tDrs',mobileDrsAction);
 mobileTap('tCam',()=>{camMode=(camMode+1)%4;showMsg('CAMERA '+(camMode+1),'',420);});
 mobileTap('tPit',mobilePitAction);
@@ -9958,6 +10435,364 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   if(iosTouch){iosTouch.classList.add('active');iosTouch.style.setProperty('display','block','important');iosTouch.style.setProperty('visibility','visible','important');iosTouch.style.setProperty('opacity','1','important');}
   focusGame();
 });
+
+/* ============================================================
+   LANDSCAPE LOCK + LANDSCAPE STEERING-WHEEL GYRO PATCH — 2026-06
+   - Requests fullscreen + landscape-primary lock from direct START gesture.
+   - Keeps a clear fallback hint if Safari refuses orientation locking.
+   - Uses landscape steering-wheel rotation: clockwise -> right, counter-clockwise -> left.
+   ============================================================ */
+(function installLandscapeLockAndWheelGyroPatch(){
+  if(!MOBILE_PROFILE)return;
+  const IOS=IOS_APP_INPUT;
+  IOS.landscapeLockTried=false;
+  IOS.landscapeLockStatus='not requested';
+  IOS.landscapeVisualAngle=0;
+
+  const style=document.createElement('style');
+  style.textContent=`
+    body.ios-native-app.landscape-lock-requested{width:100vw;height:100dvh;overflow:hidden;}
+    #landscapeLockHint{display:none;position:fixed;z-index:80;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);padding:7px 12px;border-radius:999px;background:rgba(255,210,74,.96);color:#101820;font-size:10px;font-weight:900;letter-spacing:.7px;box-shadow:0 8px 28px rgba(0,0,0,.36);pointer-events:none;}
+    body.ios-native-app.portrait-after-start #landscapeLockHint{display:block;}
+  `;
+  document.head.appendChild(style);
+  if(!document.getElementById('landscapeLockHint')){
+    const h=document.createElement('div');
+    h.id='landscapeLockHint';
+    h.textContent='가로모드 고정 시도 중 · 고정되지 않으면 iPhone을 가로로 돌려주세요';
+    document.body.appendChild(h);
+  }
+
+  function viewportIsLandscape(){return window.innerWidth>=window.innerHeight;}
+  function screenAngle(){
+    const a=screen.orientation&&Number.isFinite(screen.orientation.angle)?Number(screen.orientation.angle):(Number(window.orientation)||0);
+    if(Math.abs(a)===90)return a;
+    if(a===270)return -90;
+    return viewportIsLandscape()?90:0;
+  }
+  function updateLandscapeClass(){
+    const active=(state==='race'||state==='lights');
+    const portrait=window.innerHeight>window.innerWidth;
+    document.body.classList.toggle('portrait-after-start',!!active&&portrait);
+    IOS.landscapeVisualAngle=screenAngle();
+  }
+  window.addEventListener('resize',updateLandscapeClass,{passive:true});
+  window.addEventListener('orientationchange',()=>setTimeout(updateLandscapeClass,180),{passive:true});
+  setInterval(updateLandscapeClass,700);
+
+  async function requestLandscapeMode(reason='start'){
+    IOS.landscapeLockTried=true;
+    IOS.landscapeLockStatus='requesting';
+    document.body.classList.add('landscape-lock-requested');
+    updateLandscapeClass();
+    const root=document.documentElement;
+    try{
+      if(root.requestFullscreen&&!document.fullscreenElement){
+        const p=root.requestFullscreen({navigationUI:'hide'});
+        if(p&&typeof p.catch==='function')await p.catch(()=>{});
+      }
+    }catch(_){ }
+    try{
+      if(screen.orientation&&screen.orientation.lock){
+        try{await screen.orientation.lock('landscape-primary');}
+        catch(_){try{await screen.orientation.lock('landscape');}catch(__){ }}
+      }
+    }catch(_){ }
+    updateLandscapeClass();
+    IOS.landscapeLockStatus=viewportIsLandscape()?'landscape':'lock unsupported';
+    return viewportIsLandscape();
+  }
+  window.__requestLandscapeMode=requestLandscapeMode;
+
+  function normDeg(d){
+    if(!Number.isFinite(d))return 0;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function angleDelta(a,b){return normDeg((Number(a)||0)-(Number(b)||0));}
+  function wheelPlaneAngle(sample){
+    if(!sample)return NaN;
+    const beta=Number(sample.beta),gamma=Number(sample.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return NaN;
+    return Math.atan2(gamma,beta)*180/Math.PI;
+  }
+  function betaGammaVectorStrength(sample){
+    if(!sample)return 0;
+    const beta=Number(sample.beta)||0,gamma=Number(sample.gamma)||0;
+    return Math.hypot(beta,gamma);
+  }
+  function landscapeClockwiseRaw(){
+    if(IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<650)return IOS.nativeRaw;
+    const sample=IOS.orientationSample;
+    const center=IOS.orientationCenter||sample;
+    if(!sample||!center){
+      if(IOS.lastMotionT&&performance.now()-(IOS.lastMotionT||0)<900)return clamp(IOS.motionRaw||0,-2.2,2.2);
+      return clamp(Number(IOS.webRaw)||0,-2.2,2.2);
+    }
+    const sampleWheel=wheelPlaneAngle(sample);
+    const centerWheel=wheelPlaneAngle(center);
+    const strength=Math.min(betaGammaVectorStrength(sample),betaGammaVectorStrength(center));
+    let raw=0;
+    if(Number.isFinite(sampleWheel)&&Number.isFinite(centerWheel)&&strength>5.0){
+      // atan2 positive is mathematical counter-clockwise.  The requested control is visual clockwise -> right,
+      // so clockwise is defined as the negative angular delta in the screen plane.
+      raw=-angleDelta(sampleWheel,centerWheel)/28;
+    }else{
+      // Fallback for flatter holding angles: use alpha rotation around the phone screen normal.
+      raw=angleDelta(Number(sample.alpha),Number(center.alpha))/32;
+    }
+    const ang=screenAngle();
+    if(ang===-90||ang===270)raw=-raw;
+    if(IOS.gyroInvert)raw=-raw;
+    return clamp(raw,-2.4,2.4);
+  }
+  window.__iosRawGyroValue=landscapeClockwiseRaw;
+
+  function recenterLandscapeWheel(){
+    IOS.orientationCenter=IOS.orientationSample||IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:performance.now()};
+    IOS.motionRaw=0;
+    IOS.webRaw=0;
+    IOS.smoothed=0;
+    if(car)car.steer=0;
+    updateLandscapeClass();
+    const d=document.getElementById('gyroDiagStatus');
+    if(d)d.textContent='AUDIO: '+(SND.ctx?SND.ctx.state:'not created')+' · GYRO: CENTERED · LANDSCAPE: '+IOS.landscapeLockStatus+' · RAW 0.00';
+  }
+  const oldCenter=window.__centerIOSGyro;
+  window.__centerIOSGyro=function(){try{oldCenter&&oldCenter();}catch(_){}recenterLandscapeWheel();};
+
+  const priorUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const applyGyro=MOBILE_PROFILE&&IOS.gyroEnabled&&(state==='race'||state==='lights');
+    if(applyGyro){
+      // Suppress older gyro wrappers while keeping their throttle/brake/touch logic intact.
+      const saved=IOS.gyroEnabled;
+      IOS.gyroEnabled=false;
+      try{priorUpdateInputs(dt);}finally{IOS.gyroEnabled=saved;}
+    }else{
+      priorUpdateInputs(dt);
+    }
+    if(!applyGyro||!car)return;
+    const fresh=Math.max(IOS.lastNativeT||0,IOS.lastWebT||0,IOS.lastMotionT||0);
+    if(performance.now()-fresh>1800)return;
+    let raw=landscapeClockwiseRaw();
+    const dead=0.010;
+    let steerCmd=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
+    steerCmd=clamp(steerCmd,-1,1);
+    const speedRel=clamp(Math.abs(car.vx||0)/Math.max(45,P.topSpeed||80),0,1);
+    const speedDamp=lerp(1.08,0.76,speedRel);
+    // Game convention: positive car.steer = left, negative = right.
+    // Requested convention: clockwise phone rotation = right.
+    const target=clamp(-steerCmd*(IOS.sensitivity||2.40)*speedDamp,-1,1);
+    IOS.smoothed+=clamp(target-IOS.smoothed,-dt*10.5,dt*10.5);
+    const steerRate=Number.isFinite(P.steerRate)?Math.max(P.steerRate*2.35,4.9):4.9;
+    car.steer+=clamp(IOS.smoothed-car.steer,-steerRate*dt,steerRate*dt);
+    if(Math.abs(car.steer)<0.007&&Math.abs(IOS.smoothed)<0.007)car.steer=0;
+  };
+
+  const btn=document.getElementById('btnStart');
+  if(btn){
+    const run=e=>{
+      requestLandscapeMode(e&&e.type||'start');
+      setTimeout(recenterLandscapeWheel,260);
+      setTimeout(recenterLandscapeWheel,720);
+    };
+    for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+  for(const ev of ['pointerdown','touchstart']){
+    document.addEventListener(ev,e=>{
+      if(state==='menu')return;
+      if(!IOS.landscapeLockTried)requestLandscapeMode(ev);
+    },{capture:true,passive:true});
+  }
+  updateLandscapeClass();
+})();
+
+
+/* ============================================================
+   DEFINITIVE iOS LANDSCAPE + CLOCKWISE-RIGHT STEERING OVERRIDE — 2026-06
+   This is intentionally last among mobile control patches.
+   ============================================================ */
+(function installDefinitiveIOSLandscapeSteeringOverride(){
+  if(!MOBILE_PROFILE)return;
+  const IOS=window.IOS_APP_INPUT||IOS_APP_INPUT;
+  IOS.defWheelMotionRaw=0;
+  IOS.defWheelOrientRaw=0;
+  IOS.defWheelAccelRaw=0;
+  IOS.defWheelLastMotionT=0;
+  IOS.defWheelLastOrientT=0;
+  IOS.defWheelLastAccelT=0;
+
+  function clamp01(v){return clamp(v,-1,1);}
+  function normDegDelta(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function copySample(s){return s?{alpha:Number(s.alpha)||0,beta:Number(s.beta)||0,gamma:Number(s.gamma)||0,t:performance.now()}:null;}
+  function centerNow(reason='center'){
+    IOS.orientationCenter=copySample(IOS.orientationSample)||IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:performance.now()};
+    IOS.defWheelMotionRaw=0;
+    IOS.defWheelOrientRaw=0;
+    IOS.defWheelAccelRaw=0;
+    IOS.motionRaw=0;
+    IOS.webRaw=0;
+    IOS.nativeRaw=0;
+    IOS.smoothed=0;
+    IOS.zero=0;
+    IOS.defAccelCenter=undefined;
+    if(car)car.steer=0;
+  }
+  window.__centerIOSGyro=centerNow;
+  window.__centerIOSWheelGyro=centerNow;
+
+  async function lockLandscapeFromGesture(reason='start'){
+    try{document.body.classList.add('landscape-lock-requested');}catch(_){ }
+    try{
+      const root=document.documentElement;
+      const fs=root.requestFullscreen||root.webkitRequestFullscreen;
+      if(fs&&!document.fullscreenElement){
+        const r=fs.call(root,{navigationUI:'hide'});
+        if(r&&typeof r.catch==='function')await r.catch(()=>{});
+      }
+    }catch(_){ }
+    try{
+      if(screen&&screen.orientation&&typeof screen.orientation.lock==='function'){
+        try{await screen.orientation.lock('landscape');}
+        catch(_){try{await screen.orientation.lock('landscape-primary');}catch(__){}}
+      }
+    }catch(_){ }
+    IOS.landscapeLockStatus=(innerWidth>=innerHeight)?'landscape':'fallback';
+    return innerWidth>=innerHeight;
+  }
+  window.__requestLandscapeMode=lockLandscapeFromGesture;
+  window.__forceIOSLandscape=lockLandscapeFromGesture;
+
+  function screenPlaneAngleFromOrientation(s){
+    const beta=Number(s&&s.beta),gamma=Number(s&&s.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return NaN;
+    if(Math.hypot(beta,gamma)<3.5)return NaN;
+    return Math.atan2(gamma,beta)*180/Math.PI;
+  }
+  function rawFromOrientationSample(s){
+    if(!s)return 0;
+    const c=IOS.orientationCenter||s;
+    const alphaRaw=-normDegDelta(Number(s.alpha),Number(c.alpha))/24;
+    const pa=screenPlaneAngleFromOrientation(s);
+    const pc=screenPlaneAngleFromOrientation(c);
+    let planeRaw=NaN;
+    if(Number.isFinite(pa)&&Number.isFinite(pc))planeRaw=-normDegDelta(pa,pc)/24;
+    // Both formulas define raw > 0 as clockwise visual wheel rotation.
+    let raw=0;
+    if(Number.isFinite(planeRaw)&&Math.abs(planeRaw)>Math.abs(alphaRaw)*0.60)raw=planeRaw;
+    else raw=alphaRaw;
+    if(!Number.isFinite(raw)||Math.abs(raw)<0.006)raw=Number.isFinite(planeRaw)?planeRaw:0;
+    return clamp(raw,-2.4,2.4);
+  }
+  function rawFromAcceleration(a){
+    if(!a)return 0;
+    const x=Number(a.x)||0,y=Number(a.y)||0;
+    if(Math.hypot(x,y)<1.4)return 0;
+    const angle=Math.atan2(x,y)*180/Math.PI;
+    if(!Number.isFinite(IOS.defAccelCenter))IOS.defAccelCenter=angle;
+    return clamp(-normDegDelta(angle,IOS.defAccelCenter)/24,-2.2,2.2);
+  }
+
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const s={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:performance.now()};
+      if(!Number.isFinite(s.alpha)&&!Number.isFinite(s.beta)&&!Number.isFinite(s.gamma))return;
+      IOS.orientationSample=s;
+      if(!IOS.orientationCenter)IOS.orientationCenter=copySample(s);
+      IOS.defWheelOrientRaw=rawFromOrientationSample(s);
+      IOS.webRaw=IOS.defWheelOrientRaw;
+      IOS.defWheelLastOrientT=s.t;
+      IOS.lastWebT=s.t;
+    }catch(_){ }
+  },true);
+
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const now=performance.now();
+      const dt=clamp((now-(IOS.defWheelLastMotionT||now))/1000,0.004,0.055);
+      const rr=e.rotationRate||{};
+      const rz=Number(rr.alpha);
+      if(Number.isFinite(rz)&&Math.abs(rz)>0.02){
+        // iOS alpha-rate normally increases counter-clockwise.  Invert it so clockwise => positive raw.
+        IOS.defWheelMotionRaw=clamp((IOS.defWheelMotionRaw||0)+(-rz*dt)/24,-2.35,2.35);
+        IOS.motionRaw=IOS.defWheelMotionRaw;
+        IOS.defWheelLastMotionT=now;
+        IOS.lastMotionT=now;
+      }
+      const ar=rawFromAcceleration(e.accelerationIncludingGravity);
+      if(Number.isFinite(ar)&&Math.abs(ar)>0.006){
+        IOS.defWheelAccelRaw=ar;
+        IOS.defWheelLastAccelT=now;
+      }
+    }catch(_){ }
+  },true);
+
+  function definitiveRaw(){
+    if(IOS.nativeSeen&&performance.now()-(IOS.lastNativeT||0)<650)return clamp(Number(IOS.nativeRaw)||0,-2.35,2.35);
+    const now=performance.now();
+    const hasOrient=IOS.defWheelLastOrientT&&now-IOS.defWheelLastOrientT<1200;
+    const hasMotion=IOS.defWheelLastMotionT&&now-IOS.defWheelLastMotionT<1500;
+    const hasAccel=IOS.defWheelLastAccelT&&now-IOS.defWheelLastAccelT<1200;
+    let raw=0;
+    if(hasOrient&&Math.abs(IOS.defWheelOrientRaw||0)>0.010)raw=IOS.defWheelOrientRaw;
+    else if(hasMotion)raw=IOS.defWheelMotionRaw||0;
+    else if(hasAccel)raw=IOS.defWheelAccelRaw||0;
+    else raw=Number(IOS.webRaw)||Number(IOS.motionRaw)||0;
+    if(IOS.gyroInvert)raw=-raw;
+    return clamp(raw,-2.35,2.35);
+  }
+  window.__iosRawGyroValue=definitiveRaw;
+  window.__iosWheelRawGyroValue=definitiveRaw;
+
+  const prevUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const gyroOn=!!IOS.gyroEnabled;
+    // Turn off older gyro wrappers while they process touch throttle/brake and normal physics input.
+    IOS.gyroEnabled=false;
+    try{prevUpdateInputs(dt);}finally{IOS.gyroEnabled=gyroOn;}
+    if(!gyroOn||!(state==='race'||state==='lights')||!car)return;
+    const fresh=Math.max(IOS.lastNativeT||0,IOS.defWheelLastOrientT||0,IOS.defWheelLastMotionT||0,IOS.defWheelLastAccelT||0,IOS.lastWebT||0,IOS.lastMotionT||0);
+    if(performance.now()-fresh>2000)return;
+    const raw=definitiveRaw();
+    const dead=0.010;
+    let wheel=Math.abs(raw)<dead?0:(raw>0?raw-dead:raw+dead)/(1-dead);
+    wheel=clamp(wheel,-1,1);
+    const speedRel=clamp(Math.abs(car.vx||0)/Math.max(42,P.topSpeed||78),0,1);
+    const speedDamp=lerp(1.12,0.72,speedRel);
+    // wheel > 0 means clockwise.  Game convention is car.steer < 0 for right turn.
+    const target=clamp(-wheel*(IOS.sensitivity||2.40)*speedDamp,-1,1);
+    IOS.smoothed+=clamp(target-IOS.smoothed,-dt*10.5,dt*10.5);
+    const steerRate=Number.isFinite(P.steerRate)?Math.max(P.steerRate*2.4,5.0):5.0;
+    car.steer+=clamp(IOS.smoothed-car.steer,-steerRate*dt,steerRate*dt);
+    if(Math.abs(car.steer)<0.007&&Math.abs(IOS.smoothed)<0.007)car.steer=0;
+  };
+
+  const oldPrepare=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(e){
+    try{await lockLandscapeFromGesture(e&&e.type||'start');}catch(_){ }
+    if(oldPrepare)await oldPrepare(e);
+    centerNow('start');
+    setTimeout(()=>centerNow('start-delay'),320);
+    return true;
+  };
+  const btn=document.getElementById('btnStart');
+  if(btn){
+    const run=e=>{lockLandscapeFromGesture(e&&e.type||'start');setTimeout(()=>centerNow('start-listener'),320);};
+    for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+  addEventListener('orientationchange',()=>setTimeout(()=>centerNow('orientationchange'),260),{passive:true});
+})();
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
