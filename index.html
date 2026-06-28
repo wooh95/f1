@@ -4871,13 +4871,17 @@ function startRace(){
   document.getElementById('hud').style.display='block';
   document.getElementById('mirrorFrame').style.display='block';
   document.getElementById('damagePanel').style.display=damageModeEnabled?'block':'none';
-  leaderboardPrevPos.clear();updateBroadcastTower(true);startBackgroundMusic();
+  leaderboardPrevPos.clear();updateBroadcastTower(true);
   if(IS_FREE_ROAM){
     state='race';
+    BGM.previewInMenu=false;
+    startBackgroundMusic();
     document.getElementById('lights').style.display='none';
     showMsg('FREE ROAM · '+ACTIVE_TRACK.short,'',1300);
   }else{
     state='lights';
+    BGM.previewInMenu=false;
+    startBackgroundMusic();
     runLights();
   }
 }
@@ -9127,7 +9131,8 @@ function installIPhoneMobileBuild(){
       }
     });
     const frame=document.getElementById('mirrorFrame');if(frame)frame.style.display='none';
-    if(bgmToggle)bgmToggle.checked=false;
+    // MOBILE_BGM_FIX: keep the user's BGM choice enabled on mobile; do not force it off at startup.
+    if(bgmToggle)bgmToggle.checked=true;
   }catch(e){console.warn('iPhone mobile mode install failed',e);}
 }
 function mobileTap(id,fn){
@@ -10796,12 +10801,12 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 
 
 /* ============================================================
-   SAME-FOLDER MUSIC PICKER + IN-RACE FULLSCREEN CONTROL — 2026-06
+   SAME-FOLDER MUSIC PICKER + BGM RACE-PERSISTENCE PATCH — 2026-06
    - Reads audio files placed beside index.html on GitHub Pages.
    - Supports optional music_manifest.json for non-GitHub hosting.
-   - Adds a FULL button during driving for user-gesture fullscreen requests.
+   - Keeps selected BGM running after START without adding an in-race FULL button.
    ============================================================ */
-(function installSameFolderMusicAndFullscreenPatch(){
+(function installSameFolderMusicPatch(){
   const AUDIO_EXT_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)$/i;
   const SAME_PREFIX='samefolder:';
   if(typeof BGM==='undefined')return;
@@ -10815,10 +10820,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     .musicFolder.ok{background:#0b3321!important;border-color:#37ff8b!important;color:#37ff8b!important;}
     .musicFolder.err{background:#3a1820!important;border-color:#ff6676!important;color:#ff98a4!important;}
     .sameFolderNote{margin-top:5px;color:#8aa0b2;font-size:9px;line-height:1.38;}
-    body.ios-native-app #tFull{left:calc(166px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));width:70px;height:42px;font-size:10px;color:#c8f6ff;border-color:rgba(54,230,255,.60);background:rgba(8,28,38,.76);}
-    body.ios-native-app.fullscreen-active #tFull{color:#07110b;background:#37ff8b;border-color:#37ff8b;}
-    body.mobile-build #tFull.mobileAction{right:auto!important;left:calc(14px + env(safe-area-inset-left));top:calc(162px + env(safe-area-inset-top));border-color:rgba(54,230,255,.55)!important;color:#36e6ff!important;}
-    @media(max-width:760px){body.ios-native-app #tFull{left:calc(166px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));}}
+    #tFull{display:none!important;pointer-events:none!important;}
   `;
   document.head.appendChild(style);
 
@@ -10992,71 +10994,207 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     }
   }
 
-  function fullscreenElement(){return document.fullscreenElement||document.webkitFullscreenElement||document.mozFullScreenElement||document.msFullscreenElement||null;}
-  async function requestGameFullscreen(source='button'){
-    try{initAudio();if(SND.ctx&&SND.ctx.state==='suspended')await SND.ctx.resume();}catch(_){ }
-    const root=document.documentElement;
-    let ok=false;
-    try{
-      const fs=root.requestFullscreen||root.webkitRequestFullscreen||root.mozRequestFullScreen||root.msRequestFullscreen;
-      if(fs&&!fullscreenElement()){
-        const r=fs.call(root,{navigationUI:'hide'});
-        if(r&&typeof r.then==='function')await r.catch(()=>{});
-      }
-      ok=!!fullscreenElement();
-    }catch(_){ }
-    try{
-      if(screen&&screen.orientation&&screen.orientation.lock){
-        try{await screen.orientation.lock('landscape');}catch(_){try{await screen.orientation.lock('landscape-primary');}catch(__){} }
-      }
-    }catch(_){ }
-    try{window.scrollTo(0,1);}catch(_){ }
-    document.body.classList.toggle('fullscreen-active',ok||navigator.standalone===true||matchMedia('(display-mode: fullscreen)').matches||matchMedia('(display-mode: standalone)').matches);
+  function removeStaleFullscreenButton(){
     const b=document.getElementById('tFull');
-    if(b)b.textContent=document.body.classList.contains('fullscreen-active')?'FULL✓':'FULL';
-    if(!ok&&source==='button')showMsg('FULLSCREEN', 'Safari에서 거부되면 홈 화면에 추가해서 실행하세요', 1100);
-    return ok;
-  }
-  async function exitGameFullscreen(){
-    try{
-      const ex=document.exitFullscreen||document.webkitExitFullscreen||document.mozCancelFullScreen||document.msExitFullscreen;
-      if(ex&&fullscreenElement()){const r=ex.call(document);if(r&&typeof r.then==='function')await r.catch(()=>{});}
-    }catch(_){ }
+    if(b)b.remove();
     document.body.classList.remove('fullscreen-active');
-    const b=document.getElementById('tFull');if(b)b.textContent='FULL';
   }
-  async function toggleGameFullscreen(){
-    if(fullscreenElement())return exitGameFullscreen();
-    return requestGameFullscreen('button');
-  }
-  window.__requestGameFullscreen=requestGameFullscreen;
-  window.__toggleGameFullscreen=toggleGameFullscreen;
-
-  function installFullscreenButton(){
-    const root=document.getElementById('touch');
-    if(!root||document.getElementById('tFull'))return;
-    const b=document.createElement('div');
-    b.className='tbtn mobileAction';
-    b.id='tFull';
-    b.textContent='FULL';
-    root.appendChild(b);
-    const handler=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){} if(state==='menu')return;toggleGameFullscreen();focusGame();};
-    for(const ev of ['pointerdown','touchstart','click'])b.addEventListener(ev,handler,{capture:true,passive:false});
-  }
-  document.addEventListener('fullscreenchange',()=>requestGameFullscreen('state-sync'),{passive:true});
-  document.addEventListener('webkitfullscreenchange',()=>requestGameFullscreen('state-sync'),{passive:true});
-
-  const previousStartRaceFullscreen=startRace;
-  startRace=function(){
-    previousStartRaceFullscreen();
-    setTimeout(()=>{installFullscreenButton();if(MOBILE_PROFILE)requestGameFullscreen('start');},80);
-  };
-  const previousMenuFullscreen=goToStartMenu;
-  goToStartMenu=function(){previousMenuFullscreen();document.body.classList.remove('fullscreen-active');};
 
   installMusicRefreshButton();
-  installFullscreenButton();
-  setTimeout(()=>refreshSameFolderMusic(false),600);
+  removeStaleFullscreenButton();
+  setTimeout(()=>{removeStaleFullscreenButton();refreshSameFolderMusic(false);},600);
+})();
+
+
+/* ============================================================
+   NO FULL BUTTON + PERSISTENT BGM PATCH — 2026-06
+   - Removes the in-race FULL touch button because iPhone Safari rejects it in many cases.
+   - Starts/keeps BGM from the START user gesture, then confirms playback again after race state changes.
+   ============================================================ */
+(function installNoFullButtonPersistentBgmPatch(){
+  const FULL_PATCH_FLAG='__noFullPersistentBgmPatchInstalled';
+  if(window[FULL_PATCH_FLAG])return;
+  window[FULL_PATCH_FLAG]=true;
+
+  const css=document.createElement('style');
+  css.textContent=`
+    #tFull{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;padding:0!important;margin:0!important;}
+    body.fullscreen-active #tFull{display:none!important;}
+  `;
+  document.head.appendChild(css);
+
+  function removeFullButton(){
+    const b=document.getElementById('tFull');
+    if(b&&b.parentNode){
+      try{b.replaceWith(document.createComment('FULL button removed'))}
+      catch(_){try{b.parentNode.removeChild(b);}catch(__){}}
+    }
+    document.body.classList.remove('fullscreen-active');
+  }
+  window.__removeMobileFullButton=removeFullButton;
+
+  try{
+    const observer=new MutationObserver(()=>removeFullButton());
+    observer.observe(document.body,{childList:true,subtree:true});
+    window.__noFullButtonObserver=observer;
+  }catch(_){ }
+  removeFullButton();
+
+  function bgmSelectedAndEnabled(){
+    try{return typeof bgmEnabled==='function'&&bgmEnabled();}
+    catch(_){return false;}
+  }
+
+  function resumeAudioContext(){
+    try{
+      if(typeof initAudio==='function')initAudio();
+      if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'){
+        const p=SND.ctx.resume();
+        if(p&&typeof p.catch==='function')p.catch(()=>{});
+      }
+    }catch(_){ }
+  }
+
+  function primeBgmFromStartGesture(){
+    if(!bgmSelectedAndEnabled())return;
+    resumeAudioContext();
+    try{
+      if(typeof BGM!=='undefined')BGM.previewInMenu=true;
+      if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:true});
+      if(typeof updateBackgroundMusic==='function')updateBackgroundMusic((typeof SND!=='undefined'&&SND.muted)?0:1);
+    }catch(_){ }
+  }
+
+  function keepBgmAfterRaceStart(){
+    if(!bgmSelectedAndEnabled())return;
+    resumeAudioContext();
+    try{
+      // After START, state becomes lights/race, so backgroundMusicWanted() returns true even if previewInMenu is false.
+      if(typeof BGM!=='undefined')BGM.previewInMenu=false;
+      if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:false});
+      if(typeof updateBackgroundMusic==='function')updateBackgroundMusic((typeof SND!=='undefined'&&SND.muted)?0:1);
+      const a=(typeof bgmAudio==='function')?bgmAudio():document.getElementById('bgmAudio');
+      if(a&&a.paused&&a.src){
+        const p=a.play();
+        if(p&&typeof p.catch==='function')p.catch(()=>{});
+      }
+    }catch(_){ }
+  }
+  window.__keepBgmAfterRaceStart=keepBgmAfterRaceStart;
+
+  const btn=document.getElementById('btnStart');
+  if(btn&&!btn.dataset.noFullPersistentBgm){
+    btn.dataset.noFullPersistentBgm='1';
+    for(const ev of ['pointerdown','touchstart','mousedown','click']){
+      btn.addEventListener(ev,()=>primeBgmFromStartGesture(),{capture:true,passive:true});
+    }
+  }
+
+  if(typeof startRace==='function'){
+    const prevStartRaceNoFull=startRace;
+    startRace=function(){
+      const r=prevStartRaceNoFull.apply(this,arguments);
+      removeFullButton();
+      keepBgmAfterRaceStart();
+      setTimeout(()=>{removeFullButton();keepBgmAfterRaceStart();},80);
+      setTimeout(()=>{removeFullButton();keepBgmAfterRaceStart();},420);
+      return r;
+    };
+  }
+
+  if(typeof goToStartMenu==='function'){
+    const prevGoToStartMenuNoFull=goToStartMenu;
+    goToStartMenu=function(){
+      const r=prevGoToStartMenuNoFull.apply(this,arguments);
+      removeFullButton();
+      return r;
+    };
+  }
+
+  addEventListener('pageshow',()=>setTimeout(removeFullButton,50),{passive:true});
+})();
+/* END NO FULL BUTTON + PERSISTENT BGM PATCH */
+
+
+/* ============================================================
+   MOBILE BGM PERSISTENCE + FULL BUTTON REMOVAL PATCH — 2026-06
+   - Keeps BGM active after START instead of stopping at race transition.
+   - Removes the redundant FULL button from mobile driving controls.
+   ============================================================ */
+(function installMobileBgmPersistenceAndNoFullButtonPatch(){
+  function removeFullButtonNow(){
+    const b=document.getElementById('tFull');
+    if(b)b.remove();
+  }
+  removeFullButtonNow();
+  for(const delay of [50,150,450,1000])setTimeout(removeFullButtonNow,delay);
+
+  function restartRaceBgmAfterStart(){
+    try{
+      const toggle=document.getElementById('optBgm');
+      if(!toggle||!toggle.checked)return;
+      if(typeof initAudio==='function')initAudio();
+      if(typeof BGM!=='undefined')BGM.previewInMenu=false;
+      if(typeof startBackgroundMusic==='function')startBackgroundMusic({race:true});
+      if(typeof updateBackgroundMusic==='function')updateBackgroundMusic((typeof SND!=='undefined'&&SND.muted)?0:1);
+    }catch(e){console.warn('mobile BGM persistence patch failed',e);}
+  }
+
+  if(typeof startRace==='function'&&!startRace.__bgmPersistenceNoFullPatch){
+    const previousStartRace=startRace;
+    startRace=function(){
+      previousStartRace.apply(this,arguments);
+      removeFullButtonNow();
+      // Original startRace could call startBackgroundMusic while state was still menu.
+      // Start it again after the state has become lights/race so BGM continues into driving.
+      setTimeout(()=>{removeFullButtonNow();restartRaceBgmAfterStart();},90);
+      setTimeout(()=>{removeFullButtonNow();restartRaceBgmAfterStart();},420);
+    };
+    startRace.__bgmPersistenceNoFullPatch=true;
+  }
+
+  if(typeof goToStartMenu==='function'&&!goToStartMenu.__noFullPatch){
+    const previousGoToStartMenu=goToStartMenu;
+    goToStartMenu=function(){
+      previousGoToStartMenu.apply(this,arguments);
+      removeFullButtonNow();
+    };
+    goToStartMenu.__noFullPatch=true;
+  }
+
+  const touch=document.getElementById('touch');
+  if(touch&&typeof MutationObserver!=='undefined'){
+    const mo=new MutationObserver(removeFullButtonNow);
+    mo.observe(touch,{childList:true,subtree:false});
+  }
+})();
+
+
+/* ============================================================
+   MOBILE BGM PERSISTENCE FIX — 2026-06
+   - Do not stop the selected BGM when moving from the start screen to driving.
+   - Re-assert external/BGM playback after state changes to lights/race.
+   ============================================================ */
+(function installMobileBgmPersistenceFix(){
+  if(typeof startRace!=='function'||typeof startBackgroundMusic!=='function')return;
+  const previousStartRaceBgm=startRace;
+  startRace=function(){
+    previousStartRaceBgm();
+    try{BGM.previewInMenu=false;}catch(_){ }
+    const resume=()=>{
+      try{
+        if(state!=='menu'&&bgmEnabled&&bgmEnabled()){
+          if(SND&&SND.ctx&&SND.ctx.state==='suspended')SND.ctx.resume().catch(()=>{});
+          startBackgroundMusic();
+          const a=bgmAudio&&bgmAudio();
+          if(a&&a.src&&a.paused){const p=a.play();if(p&&p.catch)p.catch(()=>{});}
+        }
+      }catch(_){ }
+    };
+    resume();
+    setTimeout(resume,180);
+    setTimeout(resume,900);
+  };
 })();
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
