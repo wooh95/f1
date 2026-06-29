@@ -13488,6 +13488,263 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 })();
 /* END FINAL MOBILE MENU / BGM / PAUSE / CAMERA CLEANUP PATCH */
 
+
+/* ============================================================
+   FINAL MOBILE CONTROL REFINEMENT PATCH — 2026-06-29
+   - Reliable pause latch: one tap pauses until the next tap resumes.
+   - Higher PIT/CAM row, new MUTE and THR-HOLD buttons.
+   - Lower minimap, slightly shifted DRIFT button, more transparent controls.
+   - Per-lap ghost delta banner.
+   ============================================================ */
+(function installFinalMobileControlRefinementPatch(){
+  if(window.__finalMobileControlRefinementPatch)return;
+  window.__finalMobileControlRefinementPatch=true;
+  const $=id=>document.getElementById(id);
+  const safeClamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  let latchedPause=false;
+  let throttleHold=false;
+  let lastPauseTap=0;
+  let lastThrottleTap=0;
+  let lastMuteTap=0;
+  let muteLatch=false;
+  let throttleInjected=false;
+
+  const style=document.createElement('style');
+  style.id='finalMobileControlRefinementStyle';
+  style.textContent=`
+    body.mobile-build #mapWrap,body.ios-native-app #mapWrap{bottom:calc(46px + env(safe-area-inset-bottom))!important;right:calc(8px + env(safe-area-inset-right))!important;transform:scale(.70)!important;opacity:.76!important;}
+    body.mobile-build #touch.active,body.ios-native-app #touch.active{display:block!important;visibility:visible!important;opacity:1!important;}
+    body.mobile-build .tbtn,body.ios-native-app .tbtn{opacity:.66!important;background:rgba(8,13,20,.34)!important;border-color:rgba(232,238,244,.24)!important;box-shadow:0 6px 16px rgba(0,0,0,.26),inset 0 0 12px rgba(255,255,255,.025)!important;backdrop-filter:blur(3px)!important;}
+    body.mobile-build .driveZone,body.ios-native-app .driveZone{opacity:.07!important;}
+    body.mobile-build .driveZone.on,body.ios-native-app .driveZone.on{opacity:.16!important;}
+    body.mobile-build #tB,body.ios-native-app #tB{background:rgba(255,42,60,.22)!important;border-color:rgba(255,42,60,.34)!important;color:#ff7b89!important;}
+    body.mobile-build #tT,body.ios-native-app #tT{background:rgba(55,255,139,.20)!important;border-color:rgba(55,255,139,.32)!important;color:#80ffaa!important;}
+    body.mobile-build #tDrs,body.ios-native-app #tDrs{background:rgba(6,45,26,.35)!important;border-color:rgba(55,255,139,.38)!important;color:#70ff9e!important;}
+    body.mobile-build #tDrift,body.ios-native-app #tDrift{left:calc(34px + env(safe-area-inset-left))!important;right:auto!important;bottom:calc(18px + env(safe-area-inset-bottom))!important;top:auto!important;background:rgba(60,31,9,.35)!important;border-color:rgba(255,179,92,.38)!important;color:#ffc27c!important;}
+    body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(166px + env(safe-area-inset-left))!important;right:auto!important;top:calc(8px + env(safe-area-inset-top))!important;bottom:auto!important;width:72px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;color:#ffd24a!important;border-color:rgba(255,210,74,.38)!important;background:rgba(54,38,8,.34)!important;z-index:18!important;}
+    body.mobile-build #tPause.on,body.ios-native-app #tPause.on{opacity:.86!important;color:#111820!important;background:#ffd24a!important;border-color:#ffd24a!important;box-shadow:0 0 15px rgba(255,210,74,.42)!important;}
+    body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(14px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:64px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;color:#90ffae!important;border-color:rgba(55,255,139,.38)!important;background:rgba(6,45,26,.34)!important;z-index:18!important;}
+    body.mobile-build #tAutoThr.on,body.ios-native-app #tAutoThr.on{opacity:.88!important;color:#07110b!important;background:#37ff8b!important;border-color:#37ff8b!important;box-shadow:0 0 15px rgba(55,255,139,.42)!important;}
+    body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(84px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:18!important;}
+    body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(152px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:18!important;}
+    body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(220px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;color:#e8eef4!important;border-color:rgba(232,238,244,.30)!important;background:rgba(8,13,20,.34)!important;z-index:18!important;}
+    body.mobile-build #tMute.on,body.ios-native-app #tMute.on{color:#ffced4!important;border-color:rgba(255,42,60,.55)!important;background:rgba(90,10,18,.50)!important;}
+    body.mobile-build #tGearUp,body.mobile-build #tGearDn,body.ios-native-app #tGearUp,body.ios-native-app #tGearDn{display:none!important;visibility:hidden!important;pointer-events:none!important;width:0!important;height:0!important;opacity:0!important;}
+    body.mobile-build.game-paused #touch .tbtn:not(#tPause),body.ios-native-app.game-paused #touch .tbtn:not(#tPause){filter:grayscale(.25) brightness(.74);opacity:.42!important;}
+    #pauseBadge{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;display:none;padding:16px 28px;border-radius:18px;background:rgba(5,8,12,.78);border:1px solid rgba(255,210,74,.60);color:#ffd24a;font-size:26px;font-weight:1000;letter-spacing:3px;box-shadow:0 14px 44px rgba(0,0,0,.48);pointer-events:none;}
+    body.game-paused #pauseBadge{display:block!important;}
+    #lapGhostDeltaBanner{position:fixed;left:50%;top:calc(74px + env(safe-area-inset-top));transform:translateX(-50%);z-index:39;display:none;padding:9px 16px;border-radius:999px;background:rgba(5,8,12,.72);border:1px solid rgba(93,246,255,.44);color:#eafaff;font-size:13px;font-weight:900;letter-spacing:.7px;font-variant-numeric:tabular-nums;box-shadow:0 8px 24px rgba(0,0,0,.34);pointer-events:none;}
+    #lapGhostDeltaBanner.fast{border-color:rgba(55,255,139,.62);color:#9cffbd;}
+    #lapGhostDeltaBanner.slow{border-color:rgba(255,102,118,.62);color:#ff9aa6;}
+    @media(max-width:760px){
+      body.mobile-build #mapWrap,body.ios-native-app #mapWrap{bottom:calc(40px + env(safe-area-inset-bottom))!important;transform:scale(.62)!important;}
+      body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(214px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(150px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(86px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(22px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(162px + env(safe-area-inset-left))!important;width:64px!important;}
+    }
+  `;
+  document.head.appendChild(style);
+
+  function ensureBadge(){
+    let b=$('pauseBadge');
+    if(!b){b=document.createElement('div');b.id='pauseBadge';b.textContent='PAUSED';document.body.appendChild(b);}
+    let d=$('lapGhostDeltaBanner');
+    if(!d){d=document.createElement('div');d.id='lapGhostDeltaBanner';document.body.appendChild(d);}
+  }
+  function makeControl(id,label,afterId){
+    const root=$('touch');
+    if(!root)return null;
+    let old=$(id);
+    if(old){
+      if(old.dataset.finalOwned==='1'){old.textContent=label;return old;}
+      const clone=old.cloneNode(true);
+      clone.textContent=label;
+      clone.dataset.finalOwned='1';
+      clone.dataset.finalTap='';
+      old.replaceWith(clone);
+      return clone;
+    }
+    const el=document.createElement('div');
+    el.id=id;
+    el.className='tbtn mobileAction';
+    el.textContent=label;
+    el.dataset.finalOwned='1';
+    const after=afterId?$(afterId):null;
+    if(after&&after.parentNode===root)after.insertAdjacentElement('afterend',el);
+    else root.appendChild(el);
+    return el;
+  }
+  function updatePauseButton(){
+    document.body.classList.toggle('game-paused',latchedPause);
+    const b=$('tPause');
+    if(b){b.textContent=latchedPause?'RESUME':'PAUSE';b.classList.toggle('on',latchedPause);}
+  }
+  function setLatchedPause(on){
+    latchedPause=!!on&&(state==='race'||state==='lights');
+    window.__finalLatchedPause=latchedPause;
+    try{window.__finalGamePaused=latchedPause;window.__racePausedFinal=latchedPause;}catch(_){ }
+    updatePauseButton();
+    if(latchedPause){
+      try{for(const k of ['w','arrowup','s','arrowdown'])keys[k]=false;}catch(_){ }
+      try{touch.t=false;touch.b=false;}catch(_){ }
+      try{if(typeof IOS_APP_INPUT!=='undefined'){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;}}catch(_){ }
+      try{car.thr=0;car.brk=0;car.axS=0;}catch(_){ }
+      try{if(SND&&SND.eGain)setAudioParam(SND.eGain.gain,0,0.03);if(SND&&SND.sGain)setAudioParam(SND.sGain.gain,0,0.03);}catch(_){ }
+    }
+  }
+  function toggleLatchedPause(){
+    const now=performance.now();
+    if(now-lastPauseTap<360)return;
+    lastPauseTap=now;
+    setLatchedPause(!latchedPause);
+  }
+  function updateThrottleButton(){
+    const b=$('tAutoThr');
+    if(b){b.textContent=throttleHold?'THR ON':'THR';b.classList.toggle('on',throttleHold);}
+  }
+  function clearThrottleInjection(){
+    if(!throttleInjected)return;
+    try{keys['w']=false;keys['arrowup']=false;touch.t=false;if(typeof IOS_APP_INPUT!=='undefined')IOS_APP_INPUT.throttle=false;}catch(_){ }
+    throttleInjected=false;
+  }
+  function toggleThrottleHold(){
+    const now=performance.now();
+    if(now-lastThrottleTap<260)return;
+    lastThrottleTap=now;
+    throttleHold=!throttleHold;
+    if(!throttleHold)clearThrottleInjection();
+    window.__mobileThrottleHold=throttleHold;
+    updateThrottleButton();
+    try{showMsg(throttleHold?'THROTTLE HOLD':'THROTTLE OFF',throttleHold?'':'warn',520);}catch(_){ }
+  }
+  function applyMuteLatch(){
+    if(!muteLatch)return;
+    try{SND.muted=true;}catch(_){ }
+    try{const a=bgmAudio&&bgmAudio();if(a)a.muted=true;}catch(_){ }
+    try{if(typeof updateBackgroundMusic==='function')updateBackgroundMusic(0);}catch(_){ }
+  }
+  function updateMuteButton(){
+    const b=$('tMute');
+    const muted=!!(muteLatch||(typeof SND!=='undefined'&&SND.muted));
+    if(b){b.textContent=muted?'MUTED':'MUTE';b.classList.toggle('on',muted);}
+  }
+  function toggleMute(){
+    const now=performance.now();
+    if(now-lastMuteTap<260)return;
+    lastMuteTap=now;
+    muteLatch=!muteLatch;
+    try{SND.muted=muteLatch;}catch(_){ }
+    try{const a=bgmAudio&&bgmAudio();if(a)a.muted=!!muteLatch;}catch(_){ }
+    try{if(typeof updateBackgroundMusic==='function')updateBackgroundMusic(muteLatch?0:1);}catch(_){ }
+    updateMuteButton();
+    try{showMsg(muteLatch?'MUTED':'SOUND ON','',600);}catch(_){ }
+  }
+
+  // Some iOS audio-unlock helpers intentionally clear SND.muted. Re-apply the user's MUTE latch after them.
+  try{if(typeof unlockIOSAudioNow==='function'&&!unlockIOSAudioNow.__finalMuteLatch){const f=unlockIOSAudioNow;unlockIOSAudioNow=async function(){const r=await f.apply(this,arguments);applyMuteLatch();updateMuteButton();return r;};unlockIOSAudioNow.__finalMuteLatch=true;}}catch(_){ }
+  try{if(typeof unlockGameAudio==='function'&&!unlockGameAudio.__finalMuteLatch){const f=unlockGameAudio;unlockGameAudio=async function(){const r=await f.apply(this,arguments);applyMuteLatch();updateMuteButton();return r;};unlockGameAudio.__finalMuteLatch=true;}}catch(_){ }
+  try{if(typeof window.__prepareIOSStartActivation==='function'&&!window.__prepareIOSStartActivation.__finalMuteLatch){const f=window.__prepareIOSStartActivation;window.__prepareIOSStartActivation=async function(){const r=await f.apply(this,arguments);applyMuteLatch();updateMuteButton();return r;};window.__prepareIOSStartActivation.__finalMuteLatch=true;}}catch(_){ }
+
+  function bindTap(el,fn){
+    if(!el)return;
+    const run=e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }try{if(typeof unlockIOSAudioNow==='function')unlockIOSAudioNow();else if(typeof initAudio==='function')initAudio();}catch(_){ }try{focusGame&&focusGame();}catch(_){ }fn(e);};
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])el.addEventListener(ev,run,{capture:true,passive:false});
+  }
+  function ensureFinalControls(){
+    ensureBadge();
+    const pause=makeControl('tPause','PAUSE','tRestart');
+    const mute=makeControl('tMute','MUTE','tPit');
+    const auto=makeControl('tAutoThr','THR','tCam');
+    const cam=$('tCam');
+    const pit=$('tPit');
+    // Remove old listeners from pause/mute/autothrottle by cloning only our own dynamic buttons; CAM/PIT keep legacy handlers.
+    if(pause&&!pause.dataset.finalTap){pause.dataset.finalTap='1';bindTap(pause,()=>toggleLatchedPause());}
+    if(mute&&!mute.dataset.finalTap){mute.dataset.finalTap='1';bindTap(mute,()=>toggleMute());}
+    if(auto&&!auto.dataset.finalTap){auto.dataset.finalTap='1';bindTap(auto,()=>toggleThrottleHold());}
+    // Keep CAM/PIT above the drive zones even if older patches recreate classes.
+    for(const el of [cam,pit,pause,mute,auto])if(el){el.classList.add('mobileAction');el.style.pointerEvents='auto';}
+    updatePauseButton();updateMuteButton();updateThrottleButton();
+  }
+  ensureFinalControls();
+
+  // Hard pause gates. These are deliberately installed after previous patches, so one PAUSE latch freezes all play-side updates.
+  function pauseGate(fn,mutedReturn){return function(){if(latchedPause&&(state==='race'||state==='lights'))return mutedReturn;return fn.apply(this,arguments);};}
+  try{if(!physStep.__finalLatchedPauseGate){const f=physStep;physStep=pauseGate(f);physStep.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updateAI.__finalLatchedPauseGate){const f=updateAI;updateAI=pauseGate(f);updateAI.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!resolveVehicleCollisions.__finalLatchedPauseGate){const f=resolveVehicleCollisions;resolveVehicleCollisions=pauseGate(f);resolveVehicleCollisions.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!aiCollideAndRender.__finalLatchedPauseGate){const f=aiCollideAndRender;aiCollideAndRender=pauseGate(f);aiCollideAndRender.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updateVisuals.__finalLatchedPauseGate){const f=updateVisuals;updateVisuals=pauseGate(f);updateVisuals.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updatePitCrew.__finalLatchedPauseGate){const f=updatePitCrew;updatePitCrew=pauseGate(f);updatePitCrew.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updatePitGuidanceVisuals.__finalLatchedPauseGate){const f=updatePitGuidanceVisuals;updatePitGuidanceVisuals=pauseGate(f);updatePitGuidanceVisuals.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updateCamera.__finalLatchedPauseGate){const f=updateCamera;updateCamera=pauseGate(f);updateCamera.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updateEngineSound.__finalLatchedPauseGate){const f=updateEngineSound;updateEngineSound=function(){
+    if(latchedPause&&(state==='race'||state==='lights')){
+      try{if(SND&&SND.eGain)setAudioParam(SND.eGain.gain,0,0.04);if(SND&&SND.sGain)setAudioParam(SND.sGain.gain,0,0.04);if(SND&&SND.ai)for(const v of SND.ai)setAudioParam(v.gain.gain,0,0.04);if(typeof updateBackgroundMusic==='function')updateBackgroundMusic(SND&&SND.muted?0:1);}catch(_){ }
+      return;
+    }
+    return f.apply(this,arguments);
+  };updateEngineSound.__finalLatchedPauseGate=true;}}catch(_){ }
+  try{if(!updateInputs.__finalThrottleHoldPatch){const f=updateInputs;updateInputs=function(dt){
+    if(latchedPause&&(state==='race'||state==='lights')){
+      try{for(const k of ['w','arrowup','s','arrowdown'])keys[k]=false;touch.t=false;touch.b=false;if(typeof IOS_APP_INPUT!=='undefined'){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;}car.thr=0;car.brk=0;}catch(_){ }
+      throttleInjected=false;
+      return;
+    }
+    const brakeHeld=!!(keys&&((keys['s']||keys['arrowdown'])||(typeof touch!=='undefined'&&touch.b)||(typeof IOS_APP_INPUT!=='undefined'&&IOS_APP_INPUT.brake)));
+    if(!throttleHold||brakeHeld)clearThrottleInjection();
+    if(throttleHold&&(state==='race'||state==='lights')&&!brakeHeld){
+      try{keys['w']=true;keys['arrowup']=true;touch.t=true;if(typeof IOS_APP_INPUT!=='undefined')IOS_APP_INPUT.throttle=true;throttleInjected=true;}catch(_){ }
+    }
+    const r=f.apply(this,arguments);
+    if(throttleHold&&(state==='race'||state==='lights')&&!brakeHeld){try{car.thr=Math.max(car.thr||0,.98);}catch(_){ }}
+    return r;
+  };updateInputs.__finalThrottleHoldPatch=true;}}catch(_){ }
+
+  // Pause should not survive menu/result transitions; throttle hold can survive only inside the current drive session.
+  try{const oldStartRace=startRace;startRace=function(){setLatchedPause(false);throttleHold=false;clearThrottleInjection();updateThrottleButton();const r=oldStartRace.apply(this,arguments);setTimeout(ensureFinalControls,50);return r;};}catch(_){ }
+  try{const oldGoToStartMenu=goToStartMenu;goToStartMenu=function(){setLatchedPause(false);throttleHold=false;clearThrottleInjection();updateThrottleButton();const r=oldGoToStartMenu.apply(this,arguments);setTimeout(ensureFinalControls,50);return r;};}catch(_){ }
+  try{const oldFinishRace=finishRace;finishRace=function(){setLatchedPause(false);throttleHold=false;clearThrottleInjection();updateThrottleButton();return oldFinishRace.apply(this,arguments);};}catch(_){ }
+
+  function fmtGhostDelta(d){
+    const abs=Math.abs(d).toFixed(3);
+    return d<=0?`고스트보다 ${abs}s 빠름`:`고스트보다 ${abs}s 느림`;
+  }
+  function showLapGhostDelta(lapTime,refTime){
+    if(!Number.isFinite(lapTime)||!Number.isFinite(refTime))return;
+    const d=lapTime-refTime;
+    let el=$('lapGhostDeltaBanner');
+    if(!el){el=document.createElement('div');el.id='lapGhostDeltaBanner';document.body.appendChild(el);}
+    el.textContent=(d<=0?'▲ ':'▼ ')+fmtGhostDelta(d)+` · LAP ${fmt(lapTime)} / GHOST ${fmt(refTime)}`;
+    el.className=d<=0?'fast':'slow';
+    el.style.display='block';
+    clearTimeout(el._hideT);
+    el._hideT=setTimeout(()=>{el.style.display='none';},2600);
+  }
+  try{if(!updateTiming.__finalGhostLapDeltaBanner){const f=updateTiming;updateTiming=function(prev,prog,dt){
+    const gh=window.__bestLapGhostChallenge&&window.__bestLapGhostChallenge.ghost;
+    const enabled=window.__bestLapGhostChallenge&&typeof window.__bestLapGhostChallenge.enabled==='function'?window.__bestLapGhostChallenge.enabled():!!gh;
+    const refBefore=(enabled&&gh&&gh.data&&Number.isFinite(gh.data.lapTime))?gh.data.lapTime:null;
+    const crossing=!IS_FREE_ROAM&&prev>totalLen*.9&&prog<totalLen*.1;
+    const okCp=Array.isArray(cps3)?(cps3[0]&&cps3[1]&&cps3[2]):false;
+    const prevLast=lastLap;
+    const r=f.apply(this,arguments);
+    if(crossing&&okCp&&lastLap!==prevLast&&Number.isFinite(refBefore)){
+      showLapGhostDelta(lastLap,refBefore);
+    }
+    return r;
+  };updateTiming.__finalGhostLapDeltaBanner=true;}}catch(_){ }
+
+  // Keep UI repaired if older delayed patches recreate or remove buttons.
+  setInterval(()=>{
+    ensureFinalControls();
+    updateMuteButton();
+    if(state==='menu'||state==='finished')setLatchedPause(false);
+  },900);
+})();
+/* END FINAL MOBILE CONTROL REFINEMENT PATCH */
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
