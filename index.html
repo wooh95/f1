@@ -336,7 +336,7 @@ body.mobile-build .musicRow select{grid-column:1/3;font-size:10px;padding:7px;}
 body.mobile-build .musicActions{grid-column:1/3;}
 body.mobile-build .musicPreview,body.mobile-build .musicFile{font-size:9px;padding:7px 8px;}
 body.mobile-build .musicVol input{width:82px;}
-body.mobile-build #btnStart{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));width:100%;font-size:15px;letter-spacing:2px;padding:13px 18px;z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.45);}
+body.mobile-build #btnStart{position:static!important;bottom:auto!important;width:100%;font-size:15px;letter-spacing:2px;padding:13px 18px;z-index:1;box-shadow:0 6px 24px rgba(0,0,0,.45);margin:18px auto 0;display:block;}
 body.mobile-build #hud{font-size:11px;}
 body.mobile-build #timing{top:calc(6px + env(safe-area-inset-top));left:6px;min-width:132px;padding:6px 8px;border-radius:7px;}
 body.mobile-build #timing .lap{font-size:9px;letter-spacing:1px;}
@@ -658,8 +658,8 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       <div id="bgmFileName" data-state="paused">곡을 선택하면 메뉴에서 바로 미리듣기 할 수 있습니다.</div>
       <div class="licenseNote">영화 OST 원음원은 저작권상 포함하지 않았습니다. 먼저 곡을 고른 뒤 <b>음원 불러오기</b>로 해당 파일을 선택하면 그 곡에 연결됩니다. 여러 음원도 한 번에 선택할 수 있으며 파일명이 곡명과 비슷하면 자동 매칭됩니다.</div>
     </div>
-    <button id="btnStart">START</button>
     <div class="licenseNote" style="margin-top:10px;text-align:center">Fan-made simulator. Vehicle, film, team and series names are used only for identification; no official affiliation, logos or licensed 3D assets are included.</div>
+    <button id="btnStart" class="startFinalButton">START</button>
   </div>
 </div>
 
@@ -11812,6 +11812,389 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   updateMenuDiag();
 })();
 /* END PRECISION ZERO-BIAS GYRO STEERING PATCH */
+
+
+
+
+
+/* ============================================================
+   USER REQUESTED MOBILE MENU + GYRO FINAL CLEANUP PATCH — 2026-06
+   - Removes high-speed straight stabilization UI and behavior.
+   - Makes the reversed gyro direction the default while keeping the checkbox editable.
+   - Preserves upper start-menu selections when changing lower menu items or maps.
+   - Moves START to the very bottom of the start screen.
+   - Replaces the final mobile gyro steering layer with a more responsive high-speed mapping.
+   ============================================================ */
+(function installUserRequestedMobileMenuGyroFinalPatch(){
+  const IS_MOBILE_PATCH=(typeof MOBILE_PROFILE!=='undefined'&&!!MOBILE_PROFILE);
+  const IOS=(window.IOS_APP_INPUT||((typeof IOS_APP_INPUT!=='undefined')?IOS_APP_INPUT:null));
+  if(window.__userRequestedMobileMenuGyroFinalPatch)return;
+  window.__userRequestedMobileMenuGyroFinalPatch=true;
+
+  const c=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lp=(a,b,t)=>a+(b-a)*c(t,0,1);
+  const nown=()=>performance&&performance.now?performance.now():Date.now();
+  function smooth01(x){x=c(x,0,1);return x*x*(3-2*x);}
+  function signedPow(v,p){return (v<0?-1:1)*Math.pow(Math.abs(v),p);}
+  function degDelta(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d;
+  }
+
+  /* 1) Start button placement and removed high-speed-stability menu. */
+  const finalStyle=document.createElement('style');
+  finalStyle.textContent=`
+    .gyroStabilityBox,#menuGyroStability,#menuGyroStabilityStrength,#menuGyroStabilityStrengthValue{display:none!important;}
+    body.mobile-build #btnStart,body.ios-native-app #btnStart,#btnStart{
+      position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;transform:none!important;
+      display:block!important;width:100%!important;max-width:760px!important;margin:20px auto calc(20px + env(safe-area-inset-bottom))!important;
+      z-index:1!important;box-shadow:0 10px 28px rgba(255,42,60,.22)!important;
+    }
+    body.mobile-build #startOverlay .card,body.ios-native-app #startOverlay .card{
+      padding-bottom:calc(20px + env(safe-area-inset-bottom))!important;
+    }
+    body.mobile-build #startOverlay .card::after,body.ios-native-app #startOverlay .card::after{
+      content:'';display:block;height:calc(10px + env(safe-area-inset-bottom));
+    }
+  `;
+  document.head.appendChild(finalStyle);
+
+  function moveStartButtonToBottom(){
+    const card=document.querySelector('#startOverlay .card');
+    const btn=document.getElementById('btnStart');
+    if(card&&btn&&card.lastElementChild!==btn){
+      card.appendChild(btn);
+    }
+  }
+  function removeHighSpeedStabilityControls(){
+    try{
+      document.querySelectorAll('.gyroStabilityBox').forEach(el=>el.remove());
+      const t=document.getElementById('menuGyroStability');
+      if(t&&t.closest('.gyroStabilityBox'))t.closest('.gyroStabilityBox').remove();
+      if(IOS){
+        IOS.highSpeedGyroStability=false;
+        IOS.gyroStabilityStrength=0;
+        IOS.gyroStraightAssistActive=0;
+      }
+      try{localStorage.setItem('f1GyroHighSpeedStability','0');localStorage.removeItem('f1GyroStabilityStrength');}catch(_){ }
+    }catch(_){ }
+  }
+  moveStartButtonToBottom();
+  removeHighSpeedStabilityControls();
+  for(const d of [80,260,700,1400])setTimeout(()=>{moveStartButtonToBottom();removeHighSpeedStabilityControls();},d);
+
+  /* 2) Reversed gyro direction as the default, but still user-editable. */
+  function applyReversedGyroDefault(){
+    if(!IOS)return;
+    try{
+      // Older stacked patches force-save f1GyroInvert=0 on every load.
+      // Ignore that legacy value unless the user changes the new checkbox in this build.
+      const userOverride=localStorage.getItem('f1GyroInvertUserOverride_20260629');
+      if(userOverride==='0'||userOverride==='1')IOS.gyroInvert=userOverride==='1';
+      else IOS.gyroInvert=true;
+      localStorage.setItem('f1GyroInvert',IOS.gyroInvert?'1':'0');
+    }catch(_){IOS.gyroInvert=true;}
+    const inv=document.getElementById('menuGyroInvert');
+    if(inv){
+      inv.checked=!!IOS.gyroInvert;
+      const label=inv.closest('label');
+      if(label&&!label.dataset.defaultReversedLabel){
+        label.dataset.defaultReversedLabel='1';
+        const textNodes=[...label.childNodes].filter(n=>n.nodeType===3);
+        if(textNodes.length)textNodes[textNodes.length-1].nodeValue=' 조향 방향 반전 · 기본 ON';
+        else label.appendChild(document.createTextNode(' 조향 방향 반전 · 기본 ON'));
+      }
+      inv.addEventListener('change',()=>{
+        IOS.gyroInvert=!!inv.checked;
+        try{
+          localStorage.setItem('f1GyroInvert',IOS.gyroInvert?'1':'0');
+          localStorage.setItem('f1GyroInvertUserOverride_20260629',IOS.gyroInvert?'1':'0');
+        }catch(_){ }
+      },{passive:true});
+    }
+  }
+  applyReversedGyroDefault();
+  for(const d of [100,600,1500])setTimeout(applyReversedGyroDefault,d);
+
+  /* 3) Preserve start-menu settings across lower-option changes and map reloads. */
+  const MENU_PREF_KEY='f1MobileStartMenuStablePrefs_20260629';
+  const skipIds=new Set(['bgmFile']);
+  function elKey(el){
+    if(!el||skipIds.has(el.id))return null;
+    if(el.type==='file')return null;
+    if(el.name&&el.type==='radio')return 'radio:'+el.name;
+    if(el.id)return 'id:'+el.id;
+    return null;
+  }
+  function readPrefs(){try{return JSON.parse(localStorage.getItem(MENU_PREF_KEY)||'{}')||{};}catch(_){return {};}}
+  function escAttr(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
+  function writePrefs(prefs){try{localStorage.setItem(MENU_PREF_KEY,JSON.stringify(prefs));}catch(_){ }}
+  function collectMenuPrefs(){
+    const root=document.getElementById('startOverlay')||document;
+    const prefs=readPrefs();
+    root.querySelectorAll('input,select,textarea').forEach(el=>{
+      const key=elKey(el);if(!key)return;
+      if(el.type==='radio'){
+        if(el.checked)prefs[key]=el.value;
+      }else if(el.type==='checkbox'){
+        prefs[key]=!!el.checked;
+      }else{
+        prefs[key]=el.value;
+      }
+    });
+    try{
+      if(typeof getSelectedVehicleClass==='function')prefs['app:raceClass']=getSelectedVehicleClass();
+      if(typeof getSelectedTeamIndex==='function'&&typeof getSelectedVehicleClass==='function')prefs['app:raceTeam_'+getSelectedVehicleClass()]=String(getSelectedTeamIndex());
+      const ai=document.getElementById('optAICount');if(ai)prefs['app:raceAI']=ai.value;
+    }catch(_){ }
+    writePrefs(prefs);
+    // Mirror important settings into the original storage keys used before reload.
+    try{
+      if(typeof storageSet==='function'){
+        const cls=document.querySelector('input[name="vehicleClass"]:checked');if(cls)storageSet('raceClass',cls.value);
+        const ai=document.getElementById('optAICount');if(ai)storageSet('raceAI',ai.value);
+        const team=document.getElementById('teamSelect');const clsVal=cls&&cls.value;if(team&&clsVal)storageSet('raceTeam_'+clsVal,team.value);
+      }
+    }catch(_){ }
+    return prefs;
+  }
+  function applyMenuPrefs(){
+    const prefs=readPrefs();
+    const root=document.getElementById('startOverlay')||document;
+    for(const [key,val] of Object.entries(prefs)){
+      try{
+        if(key.startsWith('radio:')){
+          const name=key.slice(6);
+          // Track choice is controlled by ACTIVE_TRACK_KEY after a reload; preserve everything else.
+          if(name==='trackChoice')continue;
+          const el=root.querySelector('input[name="'+escAttr(name)+'"][value="'+escAttr(String(val))+'"]');
+          if(el)el.checked=true;
+        }else if(key.startsWith('id:')){
+          const id=key.slice(3);
+          const el=document.getElementById(id);
+          if(!el||skipIds.has(id)||el.type==='file')continue;
+          if(el.type==='checkbox')el.checked=!!val;
+          else if(el.tagName==='SELECT'){
+            if([...el.options].some(o=>o.value===String(val)))el.value=String(val);
+          }else{
+            el.value=String(val);
+          }
+        }
+      }catch(_){ }
+    }
+    try{
+      if(typeof updateAICountLabel==='function')updateAICountLabel();
+      if(typeof updateTeamPalette==='function')updateTeamPalette();
+      if(typeof updateBgmOptionLabels==='function')updateBgmOptionLabels();
+      if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);
+    }catch(_){ }
+    applyReversedGyroDefault();
+  }
+
+  const oldSaveMenuPreferences=(typeof saveMenuPreferences==='function')?saveMenuPreferences:null;
+  if(oldSaveMenuPreferences&&!oldSaveMenuPreferences.__stablePrefsWrapper){
+    saveMenuPreferences=function(){
+      collectMenuPrefs();
+      return oldSaveMenuPreferences.apply(this,arguments);
+    };
+    saveMenuPreferences.__stablePrefsWrapper=true;
+  }
+  const menuRoot=document.getElementById('startOverlay');
+  if(menuRoot){
+    for(const ev of ['input','change']){
+      menuRoot.addEventListener(ev,e=>{
+        const t=e.target;
+        if(!t||!('tagName' in t))return;
+        collectMenuPrefs();
+        // Some existing UI callbacks rebuild lower sections. Re-apply upper persistent settings after they finish.
+        setTimeout(()=>{applyMenuPrefs();moveStartButtonToBottom();removeHighSpeedStabilityControls();},0);
+      },{capture:true,passive:true});
+    }
+  }
+  window.addEventListener('beforeunload',()=>collectMenuPrefs(),{capture:true});
+  setTimeout(applyMenuPrefs,0);
+  setTimeout(applyMenuPrefs,160);
+  setTimeout(()=>{applyMenuPrefs();moveStartButtonToBottom();removeHighSpeedStabilityControls();},680);
+
+  /* 4) Final responsive gyro steering layer.  This intentionally runs after the precision/high-speed patches. */
+  if(!IS_MOBILE_PATCH||!IOS||typeof updateInputs!=='function')return;
+  IOS.finalGyroRaw=0;
+  IOS.finalGyroFiltered=0;
+  IOS.finalGyroSteer=0;
+  IOS.finalGyroBias=0;
+  IOS.finalGyroRate=0;
+  IOS.finalLastOrientT=0;
+  IOS.finalLastMotionT=0;
+  IOS.finalLastAccelT=0;
+
+  function copySample(s){return s?{alpha:Number(s.alpha)||0,beta:Number(s.beta)||0,gamma:Number(s.gamma)||0,t:nown()}:null;}
+  function screenPlaneAngle(s){
+    const beta=Number(s&&s.beta),gamma=Number(s&&s.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return NaN;
+    if(Math.hypot(beta,gamma)<3.2)return NaN;
+    return Math.atan2(gamma,beta)*180/Math.PI;
+  }
+  function centerFinalGyro(){
+    IOS.orientationCenter=copySample(IOS.orientationSample)||copySample(IOS.finalGyroSample)||IOS.orientationCenter||{alpha:0,beta:0,gamma:0,t:nown()};
+    IOS.finalGyroAccelCenter=undefined;
+    IOS.finalGyroRaw=0;IOS.finalGyroFiltered=0;IOS.finalGyroSteer=0;IOS.finalGyroBias=0;IOS.finalGyroRate=0;
+    IOS.smoothed=0;IOS.webRaw=0;IOS.motionRaw=0;IOS.nativeRaw=0;
+    if(car)car.steer=0;
+  }
+  const previousCenter=window.__centerIOSGyro;
+  window.__centerIOSGyro=function(){try{previousCenter&&previousCenter();}catch(_){ }centerFinalGyro();};
+  window.__centerIOSWheelGyro=window.__centerIOSGyro;
+
+  function rawFromOrientation(s){
+    if(!s)return 0;
+    const center=IOS.orientationCenter||s;
+    const pa=screenPlaneAngle(s),pc=screenPlaneAngle(center);
+    const plane=Number.isFinite(pa)&&Number.isFinite(pc)?-degDelta(pa,pc)/24:NaN;
+    const alpha=-degDelta(Number(s.alpha),Number(center.alpha))/30;
+    let raw=0;
+    if(Number.isFinite(plane)&&Math.abs(plane)>0.010)raw=plane*0.88+alpha*0.12;
+    else raw=alpha;
+    return c(raw,-2.25,2.25);
+  }
+  function rawFromAccel(a){
+    if(!a)return 0;
+    const x=Number(a.x)||0,y=Number(a.y)||0;
+    if(Math.hypot(x,y)<1.35)return 0;
+    const angle=Math.atan2(x,y)*180/Math.PI;
+    if(!Number.isFinite(IOS.finalGyroAccelCenter))IOS.finalGyroAccelCenter=angle;
+    return c(-degDelta(angle,IOS.finalGyroAccelCenter)/25,-2.10,2.10);
+  }
+  function currentRaw(){
+    const t=nown();
+    let raw=0;
+    if(IOS.finalLastOrientT&&t-IOS.finalLastOrientT<1250)raw=Number(IOS.finalOrientRaw)||0;
+    else if(IOS.finalLastMotionT&&t-IOS.finalLastMotionT<1100)raw=Number(IOS.finalMotionRaw)||0;
+    else if(IOS.finalLastAccelT&&t-IOS.finalLastAccelT<1250)raw=Number(IOS.finalAccelRaw)||0;
+    else raw=Number(IOS.webRaw||IOS.motionRaw||0)||0;
+    if(IOS.gyroInvert)raw=-raw;
+    return c(raw,-2.25,2.25);
+  }
+  window.__iosRawGyroValue=currentRaw;
+  window.__iosWheelRawGyroValue=currentRaw;
+
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const s={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:nown()};
+      if(!Number.isFinite(s.alpha)&&!Number.isFinite(s.beta)&&!Number.isFinite(s.gamma))return;
+      IOS.finalGyroSample=s;
+      IOS.orientationSample=s;
+      if(!IOS.orientationCenter)IOS.orientationCenter=copySample(s);
+      IOS.finalOrientRaw=rawFromOrientation(s);
+      IOS.webRaw=IOS.finalOrientRaw;
+      IOS.finalLastOrientT=s.t;
+      IOS.lastWebT=s.t;
+    }catch(_){ }
+  },true);
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const t=nown();
+      const dt=c((t-(IOS.finalLastMotionT||t))/1000,0.004,0.055);
+      const rr=e.rotationRate||{};
+      const rz=Number(rr.alpha);
+      if(Number.isFinite(rz)&&Math.abs(rz)>0.025){
+        IOS.finalMotionRaw=c((IOS.finalMotionRaw||0)+(-rz*dt)/27,-2.20,2.20);
+        IOS.finalGyroRate=rz;
+        IOS.motionRaw=IOS.finalMotionRaw;
+        IOS.finalLastMotionT=t;
+        IOS.lastMotionT=t;
+      }
+      const ar=rawFromAccel(e.accelerationIncludingGravity);
+      if(Number.isFinite(ar)&&Math.abs(ar)>0.006){
+        IOS.finalAccelRaw=ar;
+        IOS.finalLastAccelT=t;
+      }
+    }catch(_){ }
+  },true);
+
+  const olderUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const apply=!!IOS.gyroEnabled&&(state==='race'||state==='lights')&&!!car;
+    if(apply){
+      const saved=IOS.gyroEnabled;
+      IOS.gyroEnabled=false;
+      try{olderUpdateInputs(dt);}finally{IOS.gyroEnabled=saved;}
+      applyFinalResponsiveGyro(dt||0.016);
+    }else{
+      olderUpdateInputs(dt);
+    }
+  };
+
+  function applyFinalResponsiveGyro(dt){
+    const fresh=Math.max(IOS.finalLastOrientT||0,IOS.finalLastMotionT||0,IOS.finalLastAccelT||0,IOS.lastNativeT||0,IOS.lastWebT||0,IOS.lastMotionT||0);
+    if(nown()-fresh>2300){
+      IOS.finalGyroRaw=0;IOS.finalGyroFiltered=0;IOS.finalGyroSteer=0;IOS.smoothed=0;return;
+    }
+    const speed=Math.abs(Number(car.vx)||0);
+    const top=Math.max(42,Number(P&&P.topSpeed)||78);
+    const speedRel=c(speed/top,0,1);
+    let raw=currentRaw();
+
+    // Auto-zero remains, but it is no longer a high-speed straight assist. It only removes persistent sensor offset near center.
+    const deadBase=c(Number(IOS.precisionDeadzoneBase)||0.030,0.010,0.080);
+    const centeredWindow=lp(0.105,0.155,1-speedRel);
+    if(IOS.precisionAutoZero!==false&&Math.abs(raw-(IOS.finalGyroBias||0))<centeredWindow&&Math.abs(car.steer||0)<0.075&&Math.abs(car.r||0)<0.38){
+      const biasRate=lp(0.28,0.62,speedRel);
+      IOS.finalGyroBias=lp(IOS.finalGyroBias||0,raw,1-Math.exp(-dt*biasRate));
+      IOS.finalGyroBias=c(IOS.finalGyroBias,-0.30,0.30);
+    }
+    raw=c(raw-(IOS.finalGyroBias||0),-2.20,2.20);
+
+    // Mild filtering only.  The previous high-speed patch used large dead-zone, max-steer reduction, and yaw damping; those are removed.
+    const rawRate=lp(14.0,10.0,speedRel);
+    IOS.finalGyroFiltered+=c(raw-(IOS.finalGyroFiltered||0),-rawRate*dt,rawRate*dt);
+    const filter=lp(18.0,13.0,speedRel);
+    IOS.finalGyroFiltered=lp(IOS.finalGyroFiltered,raw,1-Math.exp(-dt*filter));
+    raw=IOS.finalGyroFiltered;
+    IOS.finalGyroRaw=raw;
+
+    const dead=deadBase+lp(0.002,0.012,speedRel);
+    const exit=dead*1.20;
+    const absRaw=Math.abs(raw);
+    let wheel=0;
+    if(absRaw>exit){
+      wheel=(absRaw-exit)/(1-exit);
+      wheel*=raw<0?-1:1;
+      wheel=c(wheel,-1,1);
+      wheel=signedPow(wheel,lp(1.00,1.10,speedRel));
+    }
+
+    const centerHold=wheel===0?1:smooth01((0.055-Math.abs(wheel))/0.055);
+    const speedGain=lp(1.08,0.96,speedRel); // high speed still responds; no heavy damping.
+    const target=c(-wheel*(Number(IOS.sensitivity)||2.40)*speedGain,-1,1);
+    const response=target===0?lp(18.0,15.0,speedRel):lp(15.5,12.5,speedRel);
+    IOS.finalGyroSteer=lp(IOS.finalGyroSteer||0,target,1-Math.exp(-dt*response));
+    if(centerHold>0.92&&Math.abs(raw)<dead){IOS.finalGyroSteer=0;IOS.smoothed=0;}
+    else IOS.smoothed=IOS.finalGyroSteer;
+
+    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*2.75,5.4):5.4;
+    const steerRate=lp(steerRateBase,Math.max(4.9,steerRateBase*0.92),speedRel);
+    car.steer+=c(IOS.finalGyroSteer-car.steer,-steerRate*dt,steerRate*dt);
+    if(Math.abs(car.steer)<0.010&&Math.abs(IOS.finalGyroSteer)<0.010){car.steer=0;IOS.finalGyroSteer=0;IOS.smoothed=0;}
+  }
+
+  const oldPrepare=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(e){
+    applyReversedGyroDefault();
+    if(oldPrepare)await oldPrepare(e);
+    centerFinalGyro();
+    setTimeout(centerFinalGyro,260);
+    setTimeout(centerFinalGyro,820);
+    return true;
+  };
+  const btn=document.getElementById('btnStart');
+  if(btn&&!btn.dataset.finalResponsiveGyro){
+    btn.dataset.finalResponsiveGyro='1';
+    for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,()=>{applyReversedGyroDefault();collectMenuPrefs();setTimeout(centerFinalGyro,360);},{capture:true,passive:true});
+  }
+})();
+/* END USER REQUESTED MOBILE MENU + GYRO FINAL CLEANUP PATCH */
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
