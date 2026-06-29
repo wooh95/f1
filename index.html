@@ -13745,6 +13745,776 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 })();
 /* END FINAL MOBILE CONTROL REFINEMENT PATCH */
 
+
+/* ============================================================
+   DYNAMIC ISLAND UI OFFSET + ROBUST BGM / GLOBAL MUTE PATCH — 2026-06-29
+   - Aligns MENU / RESTART with the PAUSE-RESUME row.
+   - Moves play HUD/buttons rightward to avoid a left-side Dynamic Island in landscape.
+   - Restores same-folder BGM playback from a user gesture and keeps it alive while driving.
+   - MUTE now mutes the entire game, including WebAudio engine/crowd/AI and HTMLAudio BGM.
+   ============================================================ */
+(function installDynamicIslandAudioMuteFinalPatch(){
+  if(window.__dynamicIslandAudioMuteFinalPatch)return;
+  window.__dynamicIslandAudioMuteFinalPatch=true;
+  const $=id=>document.getElementById(id);
+  const SAME_PREFIX='samefolder:';
+  let lastMuteUiTap=0;
+  let lastStartBgmTap=0;
+  window.__allGameSoundMuted=!!(window.__allGameSoundMuted||false);
+
+  const style=document.createElement('style');
+  style.id='dynamicIslandAudioMuteFinalStyle';
+  style.textContent=`
+    :root{--ios-island-shift:38px;--ios-ui-nudge:18px;}
+    body.mobile-build #timing,body.ios-native-app #timing{left:calc(44px + env(safe-area-inset-left))!important;}
+    body.mobile-build #broadcastTower,body.ios-native-app #broadcastTower{left:calc(44px + env(safe-area-inset-left))!important;}
+    body.mobile-build #inputs,body.ios-native-app #inputs{left:calc(46px + env(safe-area-inset-left))!important;}
+    body.mobile-build #dash,body.ios-native-app #dash{left:calc(50% + var(--ios-ui-nudge))!important;}
+    body.mobile-build #msg,body.ios-native-app #msg{left:calc(50% + var(--ios-ui-nudge))!important;transform:translateX(-50%)!important;}
+    body.mobile-build #lapGhostDeltaBanner,body.ios-native-app #lapGhostDeltaBanner{left:calc(50% + var(--ios-ui-nudge))!important;transform:translateX(-50%)!important;}
+    body.mobile-build #lights,body.ios-native-app #lights{left:calc(50% + var(--ios-ui-nudge))!important;}
+
+    body.mobile-build #tMenu,body.ios-native-app #tMenu{left:calc(48px + env(safe-area-inset-left))!important;right:auto!important;top:calc(8px + env(safe-area-inset-top))!important;bottom:auto!important;width:70px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:20!important;}
+    body.mobile-build #tRestart,body.ios-native-app #tRestart{left:calc(124px + env(safe-area-inset-left))!important;right:auto!important;top:calc(8px + env(safe-area-inset-top))!important;bottom:auto!important;width:78px!important;height:40px!important;border-radius:13px!important;font-size:8.5px!important;z-index:20!important;}
+    body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(210px + env(safe-area-inset-left))!important;right:auto!important;top:calc(8px + env(safe-area-inset-top))!important;bottom:auto!important;width:72px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:20!important;}
+
+    body.mobile-build #tL,body.ios-native-app #tL{left:calc(50px + env(safe-area-inset-left))!important;}
+    body.mobile-build #tR,body.ios-native-app #tR{left:calc(136px + env(safe-area-inset-left))!important;}
+    body.mobile-build #tDrift,body.ios-native-app #tDrift{left:calc(72px + env(safe-area-inset-left))!important;right:auto!important;}
+
+    body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(204px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;}
+    body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(136px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;}
+    body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(68px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;}
+    body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(4px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;}
+
+    body.mobile-build #mapWrap,body.ios-native-app #mapWrap{right:calc(4px + env(safe-area-inset-right))!important;bottom:calc(40px + env(safe-area-inset-bottom))!important;}
+    body.mobile-build #touch .tbtn,body.ios-native-app #touch .tbtn{opacity:.54!important;background-color:rgba(7,12,19,.28)!important;border-color:rgba(232,238,244,.20)!important;}
+    body.mobile-build #touch .tbtn.on,body.ios-native-app #touch .tbtn.on{opacity:.78!important;}
+    body.mobile-build #tMute.on,body.ios-native-app #tMute.on{opacity:.86!important;color:#fff!important;background:rgba(255,42,60,.56)!important;border-color:rgba(255,160,170,.72)!important;}
+    body.mobile-build #tT,body.ios-native-app #tT{right:calc(4px + env(safe-area-inset-right))!important;}
+    body.mobile-build #tB,body.ios-native-app #tB{right:calc(90px + env(safe-area-inset-right))!important;}
+    @media(max-width:760px){
+      :root{--ios-island-shift:32px;--ios-ui-nudge:14px;}
+      body.mobile-build #tMenu,body.ios-native-app #tMenu{left:calc(42px + env(safe-area-inset-left))!important;width:64px!important;}
+      body.mobile-build #tRestart,body.ios-native-app #tRestart{left:calc(112px + env(safe-area-inset-left))!important;width:74px!important;}
+      body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(194px + env(safe-area-inset-left))!important;width:64px!important;}
+      body.mobile-build #tL,body.ios-native-app #tL{left:calc(42px + env(safe-area-inset-left))!important;}
+      body.mobile-build #tR,body.ios-native-app #tR{left:calc(126px + env(safe-area-inset-left))!important;}
+      body.mobile-build #tDrift,body.ios-native-app #tDrift{left:calc(62px + env(safe-area-inset-left))!important;}
+      body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(196px + env(safe-area-inset-right))!important;width:56px!important;}
+      body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(134px + env(safe-area-inset-right))!important;width:56px!important;}
+      body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(72px + env(safe-area-inset-right))!important;width:56px!important;}
+      body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(10px + env(safe-area-inset-right))!important;width:56px!important;}
+    }
+  `;
+  document.head.appendChild(style);
+
+  function isSameFolderChoice(choice){return typeof choice==='string'&&choice.startsWith(SAME_PREFIX);}
+  function currentBgmChoice(){try{return bgmChoice();}catch(_){const s=$('bgmTrack');return s?s.value:'';}}
+  function bgmIsEnabled(){try{return bgmEnabled();}catch(_){const e=$('optBgm');return !!(e&&e.checked);}}
+  function bgmVol(){try{return Math.max(0,Math.min(1,bgmVolume()));}catch(_){const e=$('bgmVolume');return Math.max(0,Math.min(1,(parseInt(e&&e.value,10)||0)/100));}}
+  function isDriveState(){return state==='race'||state==='lights'||state==='finished';}
+  function canPlayBgmNow(){return bgmIsEnabled()&&!window.__allGameSoundMuted&&isSameFolderChoice(currentBgmChoice())&&(state!=='menu'||(typeof BGM!=='undefined'&&BGM.previewInMenu));}
+
+  function setMasterMuted(on){
+    try{
+      if(typeof SND==='undefined'||!SND)return;
+      SND.muted=!!on;
+      const C=SND.ctx;
+      if(SND.master&&SND.master.gain){
+        const target=on?0:0.96;
+        if(C&&C.currentTime!=null&&typeof setAudioParam==='function')setAudioParam(SND.master.gain,target,on?0.018:0.045);
+        else SND.master.gain.value=target;
+      }
+    }catch(_){ }
+  }
+  function setHtmlAudioMuted(on){
+    try{
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      if(a){a.muted=!!on;if(!on)a.volume=Math.max(0,Math.min(1,bgmVol()*0.95));}
+    }catch(_){ }
+  }
+  function setAllGameMuted(on){
+    window.__allGameSoundMuted=!!on;
+    setMasterMuted(on);
+    setHtmlAudioMuted(on);
+    try{if(on&&typeof updateBackgroundMusic==='function')updateBackgroundMusic(0);}catch(_){ }
+    try{const b=$('tMute');if(b){b.textContent=on?'MUTED':'MUTE';b.classList.toggle('on',!!on);}}catch(_){ }
+    if(!on){
+      try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+      setTimeout(()=>{tryStartSameFolderBgm({fromGesture:false,reason:'unmute'});},40);
+    }
+  }
+  window.__setAllGameMuted=setAllGameMuted;
+
+  async function tryStartSameFolderBgm(opts={}){
+    const fromGesture=!!opts.fromGesture;
+    try{
+      if(!bgmIsEnabled()||window.__allGameSoundMuted)return false;
+      let choice=currentBgmChoice();
+      if(!isSameFolderChoice(choice)){
+        const select=$('bgmTrack');
+        const first=select?[...select.options].find(o=>o.dataset.sameFolder==='1'||isSameFolderChoice(o.value)):null;
+        if(first){select.value=first.value;choice=first.value;}else{
+          if(fromGesture&&window.__refreshSameFolderMusic){
+            try{await window.__refreshSameFolderMusic(true);}catch(_){ }
+            const again=$('bgmTrack');
+            const opt=again?[...again.options].find(o=>o.dataset.sameFolder==='1'||isSameFolderChoice(o.value)):null;
+            if(opt){again.value=opt.value;choice=opt.value;}
+          }
+        }
+      }
+      if(!isSameFolderChoice(choice))return false;
+      if(typeof initAudio==='function')initAudio();
+      try{if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'){const pr=SND.ctx.resume();if(pr&&typeof pr.catch==='function')pr.catch(()=>{});}}catch(_){ }
+      let source=null;
+      try{source=resolveBgmSource(choice);}catch(_){source=null;}
+      if(!source||!source.src)return false;
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      if(!a)return false;
+      a.loop=true;
+      a.playsInline=true;
+      a.setAttribute('playsinline','');
+      a.preload='auto';
+      const abs=new URL(source.src,document.baseURI).href;
+      if(a.src!==abs){
+        try{a.src=source.src;a.load();a.currentTime=0;}catch(_){a.src=source.src;}
+      }
+      a.muted=false;
+      a.volume=Math.max(0,Math.min(1,bgmVol()*0.95));
+      if(typeof BGM!=='undefined'){
+        BGM.previewInMenu=(state==='menu');
+        BGM.externalActive=true;
+        BGM.fallbackNotified=false;
+        BGM.sourceKey=choice+'|'+abs;
+      }
+      let p;
+      try{p=a.play();}catch(_){return false;}
+      if(p&&typeof p.then==='function'){
+        p.then(()=>{
+          try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }
+          try{if(typeof setBgmStatus==='function')setBgmStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+(source.name||'BGM'),'ready');}catch(_){ }
+          try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+        }).catch(()=>{
+          try{if(typeof setBgmStatus==='function')setBgmStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 같은 폴더 검색을 한 번 더 눌러 주세요.','error');}catch(_){ }
+        });
+      }
+      try{if(typeof setBgmStatus==='function')setBgmStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+(source.name||'BGM'),'ready');}catch(_){ }
+      return true;
+    }catch(e){console.warn('final same-folder BGM start failed',e);return false;}
+  }
+  window.__tryStartSameFolderBgm=tryStartSameFolderBgm;
+
+  function ensureBgmAlive(){
+    try{
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      if(!a)return;
+      if(window.__allGameSoundMuted){a.muted=true;return;}
+      if(!bgmIsEnabled()||!isSameFolderChoice(currentBgmChoice()))return;
+      if(isDriveState()){
+        if(typeof BGM!=='undefined'){BGM.previewInMenu=false;BGM.externalActive=!!a.src;}
+        a.muted=false;
+        a.volume=Math.max(0,Math.min(1,bgmVol()*0.95));
+        if(a.paused&&a.src)tryStartSameFolderBgm({fromGesture:false,reason:'keepalive'});
+      }
+    }catch(_){ }
+  }
+
+  try{
+    const oldStartBackgroundMusic=startBackgroundMusic;
+    startBackgroundMusic=function(opts={}){
+      const choice=currentBgmChoice();
+      if(isSameFolderChoice(choice)&&bgmIsEnabled()&&!window.__allGameSoundMuted){
+        return tryStartSameFolderBgm({fromGesture:!!(opts&&opts.preview),reason:'startBackgroundMusic'});
+      }
+      return oldStartBackgroundMusic.apply(this,arguments);
+    };
+  }catch(_){ }
+  try{
+    const oldUpdateBackgroundMusic=updateBackgroundMusic;
+    updateBackgroundMusic=function(mul){
+      if(window.__allGameSoundMuted){setMasterMuted(true);setHtmlAudioMuted(true);try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.04);}catch(_){ }return;}
+      const choice=currentBgmChoice();
+      if(isSameFolderChoice(choice)){
+        const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+        if(a){a.muted=false;a.volume=Math.max(0,Math.min(1,bgmVol()*0.95));}
+        try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.05);}catch(_){ }
+        ensureBgmAlive();
+        try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+        return;
+      }
+      return oldUpdateBackgroundMusic.apply(this,arguments);
+    };
+  }catch(_){ }
+
+  function startGestureBgm(){
+    const now=performance.now();
+    if(now-lastStartBgmTap<90)return;
+    lastStartBgmTap=now;
+    if(typeof BGM!=='undefined')BGM.previewInMenu=true;
+    tryStartSameFolderBgm({fromGesture:true,reason:'gesture'});
+  }
+  const startButton=$('btnStart');
+  if(startButton){
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])startButton.addEventListener(ev,startGestureBgm,{capture:true,passive:true});
+  }
+  const preview=$('bgmPreview');
+  if(preview){
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])preview.addEventListener(ev,()=>{if(typeof BGM!=='undefined')BGM.previewInMenu=true;tryStartSameFolderBgm({fromGesture:true,reason:'preview'});},{capture:true,passive:true});
+  }
+  const folder=$('bgmSameFolderRefresh');
+  if(folder){
+    folder.addEventListener('click',()=>setTimeout(()=>tryStartSameFolderBgm({fromGesture:true,reason:'folder'}),260),{capture:false,passive:true});
+  }
+
+  function bindGlobalMuteButton(){
+    const old=$('tMute');
+    if(!old)return;
+    if(old.dataset.globalMuteFinal==='1')return;
+    const b=old.cloneNode(true);
+    b.dataset.finalOwned='1';
+    b.dataset.finalTap='1';
+    b.dataset.globalMuteFinal='1';
+    old.replaceWith(b);
+    const run=e=>{
+      try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
+      const now=performance.now();
+      if(now-lastMuteUiTap<260)return;
+      lastMuteUiTap=now;
+      setAllGameMuted(!window.__allGameSoundMuted);
+      try{if(typeof showMsg==='function')showMsg(window.__allGameSoundMuted?'MUTED':'SOUND ON','',620);}catch(_){ }
+    };
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])b.addEventListener(ev,run,{capture:true,passive:false});
+    setAllGameMuted(!!window.__allGameSoundMuted);
+  }
+  bindGlobalMuteButton();
+
+  window.addEventListener('keydown',e=>{
+    const k=(typeof keyId==='function')?keyId(e):String(e.key||'').toLowerCase();
+    if(k==='m'){
+      try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
+      setAllGameMuted(!window.__allGameSoundMuted);
+      try{if(typeof showMsg==='function')showMsg(window.__allGameSoundMuted?'MUTED':'SOUND ON','',620);}catch(_){ }
+    }
+  },true);
+
+  for(const fnName of ['unlockIOSAudioNow','unlockGameAudio','unlockAudioFinal','initAudio']){
+    try{
+      const f=eval(fnName);
+      if(typeof f==='function'&&!f.__globalMuteGuard){
+        const wrapped=function(){const r=f.apply(this,arguments);setTimeout(()=>{if(window.__allGameSoundMuted)setAllGameMuted(true);else setMasterMuted(false);ensureBgmAlive();},25);return r;};
+        wrapped.__globalMuteGuard=true;
+        eval(fnName+'=wrapped');
+      }
+    }catch(_){ }
+  }
+  try{
+    if(typeof window.__prepareIOSStartActivation==='function'&&!window.__prepareIOSStartActivation.__globalMuteGuard){
+      const f=window.__prepareIOSStartActivation;
+      window.__prepareIOSStartActivation=function(){const r=f.apply(this,arguments);setTimeout(()=>{if(window.__allGameSoundMuted)setAllGameMuted(true);else setMasterMuted(false);ensureBgmAlive();},30);return r;};
+      window.__prepareIOSStartActivation.__globalMuteGuard=true;
+    }
+  }catch(_){ }
+  try{
+    const oldStartRace=startRace;
+    startRace=function(){
+      const r=oldStartRace.apply(this,arguments);
+      setTimeout(()=>{if(!window.__allGameSoundMuted){setMasterMuted(false);tryStartSameFolderBgm({fromGesture:false,reason:'raceStart'});}else setAllGameMuted(true);},80);
+      setTimeout(()=>{if(!window.__allGameSoundMuted)ensureBgmAlive();},520);
+      return r;
+    };
+  }catch(_){ }
+
+  // User-gesture keepalive: iOS can suspend HTMLAudio after touch/control transitions; restart only when the same-folder track is selected.
+  for(const ev of ['pointerdown','touchstart','keydown']){
+    window.addEventListener(ev,()=>{if(!window.__allGameSoundMuted)ensureBgmAlive();},{capture:true,passive:true});
+  }
+  setInterval(()=>{
+    bindGlobalMuteButton();
+    if(window.__allGameSoundMuted)setAllGameMuted(true);
+    else {setMasterMuted(false);ensureBgmAlive();}
+  },700);
+})();
+/* END DYNAMIC ISLAND UI OFFSET + ROBUST BGM / GLOBAL MUTE PATCH */
+
+
+
+
+/* ============================================================
+   DYNAMIC ISLAND SAFE UI + ROBUST AUDIO/MUTE PATCH — 2026-06-29
+   - Aligns MENU / RESTART / PAUSE-RESUME on the same top row and shifts play HUD right.
+   - Replaces fragile mobile MUTE with a global audio mute affecting WebAudio engine + external BGM.
+   - Rebuilds same-folder GitHub BGM playback so selected music keeps playing in-race.
+   ============================================================ */
+(function installDynamicIslandSafeUiAndRobustAudioPatch(){
+  if(window.__dynamicIslandSafeUiAndRobustAudioPatch_v1)return;
+  window.__dynamicIslandSafeUiAndRobustAudioPatch_v1=true;
+  const SAME_PREFIX='samefolder:';
+  const $=id=>document.getElementById(id);
+  const clamp01=v=>Math.max(0,Math.min(1,v));
+  let hardPaused=false;
+  let globalMute=false;
+  let lastPauseTap=0;
+  let lastMuteTap=0;
+  let lastBgmPlayTry=0;
+
+  const style=document.createElement('style');
+  style.id='dynamicIslandSafeUiAndRobustAudioStyle';
+  style.textContent=`
+    body.mobile-build #timing,body.ios-native-app #timing{left:calc(68px + env(safe-area-inset-left))!important;}
+    body.mobile-build #broadcastTower,body.ios-native-app #broadcastTower{left:calc(68px + env(safe-area-inset-left))!important;}
+    body.mobile-build #inputs,body.ios-native-app #inputs{left:calc(68px + env(safe-area-inset-left))!important;}
+    body.mobile-build #dash,body.ios-native-app #dash{left:calc(50% + 24px)!important;}
+    body.mobile-build #lights,body.ios-native-app #lights{left:calc(50% + 24px)!important;}
+    body.mobile-build #msg,body.ios-native-app #msg{left:calc(50% + 24px)!important;}
+    body.mobile-build #mirrorFrame,body.ios-native-app #mirrorFrame{left:calc(50% + 24px)!important;}
+    body.mobile-build #classBadge,body.ios-native-app #classBadge{right:calc(8px + env(safe-area-inset-right))!important;}
+    body.mobile-build #status,body.ios-native-app #status{right:calc(8px + env(safe-area-inset-right))!important;}
+    body.mobile-build #damagePanel,body.ios-native-app #damagePanel{right:calc(8px + env(safe-area-inset-right))!important;}
+    body.mobile-build #pitGuide,body.ios-native-app #pitGuide{right:calc(8px + env(safe-area-inset-right))!important;}
+    body.mobile-build #mapWrap,body.ios-native-app #mapWrap{bottom:calc(46px + env(safe-area-inset-bottom))!important;right:calc(6px + env(safe-area-inset-right))!important;}
+
+    body.mobile-build #tMenu,body.ios-native-app #tMenu{left:calc(68px + env(safe-area-inset-left))!important;top:calc(8px + env(safe-area-inset-top))!important;width:68px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.58!important;}
+    body.mobile-build #tRestart,body.ios-native-app #tRestart{left:calc(142px + env(safe-area-inset-left))!important;top:calc(8px + env(safe-area-inset-top))!important;width:72px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.58!important;}
+    body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(220px + env(safe-area-inset-left))!important;right:auto!important;top:calc(8px + env(safe-area-inset-top))!important;bottom:auto!important;width:72px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;color:#ffd24a!important;border-color:rgba(255,210,74,.40)!important;background:rgba(54,38,8,.30)!important;z-index:22!important;opacity:.62!important;}
+    body.mobile-build #tPause.on,body.ios-native-app #tPause.on{opacity:.90!important;color:#111820!important;background:#ffd24a!important;border-color:#ffd24a!important;box-shadow:0 0 15px rgba(255,210,74,.42)!important;}
+
+    body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(222px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.58!important;}
+    body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(154px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.58!important;}
+    body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(86px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.58!important;}
+    body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(18px + env(safe-area-inset-right))!important;top:calc(8px + env(safe-area-inset-top))!important;width:62px!important;height:40px!important;border-radius:13px!important;font-size:9px!important;z-index:22!important;opacity:.62!important;}
+    body.mobile-build #tMute.on,body.ios-native-app #tMute.on{opacity:.90!important;color:#ffced4!important;border-color:rgba(255,42,60,.62)!important;background:rgba(90,10,18,.58)!important;}
+    body.mobile-build #tAutoThr.on,body.ios-native-app #tAutoThr.on{opacity:.90!important;color:#07110b!important;background:#37ff8b!important;border-color:#37ff8b!important;}
+    body.mobile-build #tDrift,body.ios-native-app #tDrift{left:calc(60px + env(safe-area-inset-left))!important;right:auto!important;bottom:calc(18px + env(safe-area-inset-bottom))!important;opacity:.56!important;}
+    body.mobile-build #tDrs,body.ios-native-app #tDrs,body.mobile-build #tB,body.ios-native-app #tB,body.mobile-build #tT,body.ios-native-app #tT{opacity:.54!important;}
+    body.hard-game-paused #pauseBadge,body.game-paused #pauseBadge{display:block!important;}
+    body.hard-game-paused #touch .tbtn:not(#tPause),body.ios-native-app.hard-game-paused #touch .tbtn:not(#tPause){filter:grayscale(.28) brightness(.72);opacity:.38!important;}
+    body.all-sound-muted #tMute{color:#ffced4!important;border-color:rgba(255,42,60,.62)!important;background:rgba(90,10,18,.58)!important;}
+    @media(max-width:760px){
+      body.mobile-build #tMenu,body.ios-native-app #tMenu{left:calc(62px + env(safe-area-inset-left))!important;width:64px!important;}
+      body.mobile-build #tRestart,body.ios-native-app #tRestart{left:calc(132px + env(safe-area-inset-left))!important;width:70px!important;}
+      body.mobile-build #tPause,body.ios-native-app #tPause{left:calc(208px + env(safe-area-inset-left))!important;width:66px!important;}
+      body.mobile-build #tMute,body.ios-native-app #tMute{right:calc(214px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(150px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(86px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #tAutoThr,body.ios-native-app #tAutoThr{right:calc(22px + env(safe-area-inset-right))!important;width:58px!important;}
+      body.mobile-build #timing,body.ios-native-app #timing{left:calc(62px + env(safe-area-inset-left))!important;}
+      body.mobile-build #broadcastTower,body.ios-native-app #broadcastTower{left:calc(62px + env(safe-area-inset-left))!important;}
+      body.mobile-build #inputs,body.ios-native-app #inputs{left:calc(62px + env(safe-area-inset-left))!important;}
+    }
+  `;
+  document.head.appendChild(style);
+
+  function ensurePauseBadge(){
+    if(!$('pauseBadge')){const b=document.createElement('div');b.id='pauseBadge';b.textContent='PAUSED';document.body.appendChild(b);}
+  }
+  function cloneAsOwnedControl(id,label){
+    const root=$('touch');
+    let el=$(id);
+    if(el&&el.dataset.dynamicIslandOwned==='1'){el.textContent=label;return el;}
+    if(el){
+      const c=el.cloneNode(true);
+      c.textContent=label;
+      c.className='tbtn mobileAction';
+      c.dataset.finalOwned='1';
+      c.dataset.finalTap='1';
+      c.dataset.dynamicIslandOwned='1';
+      el.replaceWith(c);
+      return c;
+    }
+    if(root){
+      el=document.createElement('div');
+      el.id=id;el.className='tbtn mobileAction';el.textContent=label;
+      el.dataset.finalOwned='1';el.dataset.finalTap='1';el.dataset.dynamicIslandOwned='1';
+      root.appendChild(el);
+      return el;
+    }
+    return null;
+  }
+  function stopEvt(e){try{e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}catch(_){} }
+  function bindOwnedTap(el,handler){
+    if(!el||el.dataset.dynamicIslandTapBound==='1')return;
+    el.dataset.dynamicIslandTapBound='1';
+    const run=e=>{stopEvt(e);try{if(typeof initAudio==='function')initAudio();}catch(_){} handler(e);};
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])el.addEventListener(ev,run,{capture:true,passive:false});
+  }
+
+  function updatePauseVisual(){
+    document.body.classList.toggle('hard-game-paused',hardPaused);
+    document.body.classList.toggle('game-paused',hardPaused);
+    const b=$('tPause');
+    if(b){b.textContent=hardPaused?'RESUME':'PAUSE';b.classList.toggle('on',hardPaused);}
+    ensurePauseBadge();
+  }
+  function clearDriveInputs(){
+    try{for(const k of ['w','arrowup','s','arrowdown'])keys[k]=false;}catch(_){}
+    try{touch.t=false;touch.b=false;}catch(_){}
+    try{if(typeof IOS_APP_INPUT!=='undefined'){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;}}catch(_){}
+    try{if(window.IOS_APP_INPUT){window.IOS_APP_INPUT.throttle=false;window.IOS_APP_INPUT.brake=false;}}catch(_){}
+    try{car.thr=0;car.brk=0;car.axS=0;car.axHud=0;}catch(_){}
+  }
+  function setHardPause(on){
+    hardPaused=!!on&&(state==='race'||state==='lights');
+    window.__hardGamePaused=hardPaused;
+    window.__finalLatchedPause=hardPaused;
+    window.__finalGamePaused=hardPaused;
+    window.__racePausedFinal=hardPaused;
+    if(hardPaused)clearDriveInputs();
+    updatePauseVisual();
+    try{showMsg(hardPaused?'PAUSED':'RESUME','',hardPaused?900000:520);}catch(_){}
+    if(!hardPaused){const m=$('msg');if(m&&m.textContent==='PAUSED')m.style.display='none';}
+  }
+  function toggleHardPause(){
+    const now=performance.now();
+    if(now-lastPauseTap<330)return;
+    lastPauseTap=now;
+    setHardPause(!hardPaused);
+  }
+  function gateWhenPaused(fn){
+    return function(){
+      if(hardPaused&&(state==='race'||state==='lights')){clearDriveInputs();return;}
+      return fn.apply(this,arguments);
+    };
+  }
+  try{if(typeof physStep==='function'&&!physStep.__dynamicIslandHardPause){const f=physStep;physStep=gateWhenPaused(f);physStep.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof updateAI==='function'&&!updateAI.__dynamicIslandHardPause){const f=updateAI;updateAI=gateWhenPaused(f);updateAI.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof resolveVehicleCollisions==='function'&&!resolveVehicleCollisions.__dynamicIslandHardPause){const f=resolveVehicleCollisions;resolveVehicleCollisions=gateWhenPaused(f);resolveVehicleCollisions.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof aiCollideAndRender==='function'&&!aiCollideAndRender.__dynamicIslandHardPause){const f=aiCollideAndRender;aiCollideAndRender=gateWhenPaused(f);aiCollideAndRender.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof updateInputs==='function'&&!updateInputs.__dynamicIslandHardPause){const f=updateInputs;updateInputs=function(dt){if(hardPaused&&(state==='race'||state==='lights')){clearDriveInputs();return;}return f.apply(this,arguments);};updateInputs.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof updateTiming==='function'&&!updateTiming.__dynamicIslandHardPause){const f=updateTiming;updateTiming=function(){if(hardPaused&&(state==='race'||state==='lights'))return;return f.apply(this,arguments);};updateTiming.__dynamicIslandHardPause=true;}}catch(_){}
+  try{if(typeof finishRace==='function'&&!finishRace.__dynamicIslandHardPauseClear){const f=finishRace;finishRace=function(){setHardPause(false);return f.apply(this,arguments);};finishRace.__dynamicIslandHardPauseClear=true;}}catch(_){}
+  try{if(typeof goToStartMenu==='function'&&!goToStartMenu.__dynamicIslandHardPauseClear){const f=goToStartMenu;goToStartMenu=function(){setHardPause(false);return f.apply(this,arguments);};goToStartMenu.__dynamicIslandHardPauseClear=true;}}catch(_){}
+  try{if(typeof startRace==='function'&&!startRace.__dynamicIslandHardPauseClear){const f=startRace;startRace=function(){setHardPause(false);const r=f.apply(this,arguments);setTimeout(()=>ensureDynamicIslandControls(),30);setTimeout(()=>playSelectedGithubBgm('race-start-post'),120);setTimeout(()=>playSelectedGithubBgm('race-start-post-late'),700);return r;};startRace.__dynamicIslandHardPauseClear=true;}}catch(_){}
+
+  function updateMuteVisual(){
+    document.body.classList.toggle('all-sound-muted',globalMute);
+    const b=$('tMute');
+    if(b){b.textContent=globalMute?'MUTED':'MUTE';b.classList.toggle('on',globalMute);}
+  }
+  function applyGlobalMute(on){
+    globalMute=!!on;
+    window.__f1GlobalSoundMuted=globalMute;
+    try{if(typeof SND!=='undefined')SND.muted=globalMute;}catch(_){}
+    try{if(SND&&SND.master){if(SND.ctx&&SND.master.gain&&SND.master.gain.setTargetAtTime)SND.master.gain.setTargetAtTime(globalMute?0:0.86,SND.ctx.currentTime,0.025);else SND.master.gain.value=globalMute?0:0.86;}}catch(_){}
+    try{const a=bgmAudio&&bgmAudio();if(a)a.muted=globalMute;}catch(_){}
+    try{if(globalMute&&SND){
+      const zero=n=>{try{if(n&&n.gain)setAudioParam(n.gain,0,0.025);}catch(_){}};
+      zero(SND.eGain);zero(SND.sGain);zero(SND.rGain);zero(SND.crowdGain);zero(SND.crowdRoarGain);zero(SND.crowdBodyGain);zero(SND.crowdCheerGain);zero(SND.bgmGain);
+      if(SND.ai)for(const v of SND.ai)zero(v.gain);
+    }}catch(_){}
+    updateMuteVisual();
+    if(!globalMute)setTimeout(()=>playSelectedGithubBgm('unmute'),40);
+  }
+  function toggleGlobalMute(){
+    const now=performance.now();
+    if(now-lastMuteTap<300)return;
+    lastMuteTap=now;
+    applyGlobalMute(!globalMute);
+    try{showMsg(globalMute?'ALL SOUND MUTED':'SOUND ON','',650);}catch(_){}
+  }
+  try{if(typeof unlockIOSAudioNow==='function'&&!unlockIOSAudioNow.__dynamicIslandGlobalMute){const f=unlockIOSAudioNow;unlockIOSAudioNow=async function(){const r=await f.apply(this,arguments);applyGlobalMute(globalMute);return r;};unlockIOSAudioNow.__dynamicIslandGlobalMute=true;}}catch(_){}
+  try{if(typeof unlockGameAudio==='function'&&!unlockGameAudio.__dynamicIslandGlobalMute){const f=unlockGameAudio;unlockGameAudio=async function(){const r=await f.apply(this,arguments);applyGlobalMute(globalMute);return r;};unlockGameAudio.__dynamicIslandGlobalMute=true;}}catch(_){}
+  try{if(typeof window.__prepareIOSStartActivation==='function'&&!window.__prepareIOSStartActivation.__dynamicIslandGlobalMute){const f=window.__prepareIOSStartActivation;window.__prepareIOSStartActivation=async function(){const r=await f.apply(this,arguments);applyGlobalMute(globalMute);return r;};window.__prepareIOSStartActivation.__dynamicIslandGlobalMute=true;}}catch(_){}
+
+  function isSameFolderChoice(choice){return typeof choice==='string'&&choice.startsWith(SAME_PREFIX);}
+  function selectedSameFolderTrack(){
+    try{
+      const select=$('bgmTrack');
+      if(!select)return null;
+      let choice=select.value;
+      if(!isSameFolderChoice(choice)){
+        const opts=[...select.options].filter(o=>isSameFolderChoice(o.value));
+        if(opts.length){choice=opts[0].value;select.value=choice;}
+      }
+      if(BGM&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
+        const t=BGM.sameFolderTracks[choice];
+        return {choice,src:t.src,name:t.name||((select.selectedOptions&&select.selectedOptions[0])?select.selectedOptions[0].textContent:'GitHub audio')};
+      }
+    }catch(_){}
+    return null;
+  }
+  function musicWantedNow(forcePreview=false){
+    try{return bgmEnabled&&bgmEnabled()&&(state!=='menu'||forcePreview||!!(BGM&&BGM.previewInMenu));}catch(_){return false;}
+  }
+  function unlockAudioStack(){
+    try{if(typeof initAudio==='function')initAudio();}catch(_){}
+    try{if(SND&&SND.ctx&&SND.ctx.state==='suspended'){const p=SND.ctx.resume();if(p&&p.catch)p.catch(()=>{});}}catch(_){}
+  }
+  function updateBgmUi(text,stateName){try{setBgmStatus(text,stateName||'info');}catch(_){} try{updateBgmPreviewButton&&updateBgmPreviewButton();}catch(_){} }
+  function playSelectedGithubBgm(reason,forcePreview=false){
+    if(globalMute){try{const a=bgmAudio&&bgmAudio();if(a)a.muted=true;}catch(_){} return false;}
+    if(!musicWantedNow(forcePreview)){
+      try{const a=bgmAudio&&bgmAudio();if(a&&!a.paused&&state==='menu'&&!forcePreview){a.pause();}}catch(_){}
+      return false;
+    }
+    const tr=selectedSameFolderTrack();
+    if(!tr){
+      updateBgmUi('GitHub에 올린 같은 폴더 음원을 먼저 선택하세요. 목록이 비어 있으면 같은 폴더 검색을 누르세요.','paused');
+      return false;
+    }
+    unlockAudioStack();
+    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+    if(!a)return false;
+    let href=tr.src;
+    try{href=new URL(tr.src,document.baseURI).href;}catch(_){}
+    try{
+      if(a.dataset.dynamicIslandSrc!==href){
+        a.src=href;
+        a.dataset.dynamicIslandSrc=href;
+        a.load();
+        a.currentTime=0;
+      }
+      a.loop=true;
+      a.playsInline=true;
+      a.preload='auto';
+      a.muted=false;
+      a.volume=clamp01((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95);
+      if(BGM){BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='dynamic-island|'+href;if(forcePreview&&state==='menu')BGM.previewInMenu=true;}
+      if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.05);
+      const p=a.play();
+      updateBgmUi((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+tr.name,'ready');
+      if(p&&p.then){
+        p.then(()=>{try{if(BGM){BGM.externalActive=true;BGM.fallbackNotified=false;} updateBgmUi((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+tr.name,'ready');}catch(_){}})
+         .catch(()=>{updateBgmUi('iPhone이 음악 재생을 차단했습니다. 같은 폴더 검색/미리듣기 또는 START를 한 번 더 누르세요.','error');});
+      }
+      return true;
+    }catch(e){
+      updateBgmUi('선택한 GitHub 음원을 재생할 수 없습니다. 파일명과 배포 상태를 확인하세요.','error');
+      return false;
+    }
+  }
+  window.__playSelectedGithubBgm=playSelectedGithubBgm;
+
+  try{
+    startBackgroundMusic=function(opts={}){
+      const preview=!!(opts&&opts.preview);
+      if(preview&&state==='menu'&&BGM)BGM.previewInMenu=true;
+      return playSelectedGithubBgm('startBackgroundMusic',preview);
+    };
+  }catch(_){}
+  try{
+    updateBackgroundMusic=function(mul){
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      const tr=selectedSameFolderTrack();
+      const should=!!tr&&musicWantedNow(false)&&!globalMute;
+      if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.06);
+      if(a){
+        a.muted=!should;
+        a.volume=clamp01((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95);
+        if(should){
+          let href=tr.src;try{href=new URL(tr.src,document.baseURI).href;}catch(_){}
+          if(a.dataset.dynamicIslandSrc!==href){a.src=href;a.dataset.dynamicIslandSrc=href;try{a.load();}catch(_){}}
+          if(a.paused&&performance.now()-lastBgmPlayTry>1400){lastBgmPlayTry=performance.now();try{const p=a.play();if(p&&p.catch)p.catch(()=>{});}catch(_){} }
+          try{if(BGM)BGM.externalActive=true;}catch(_){}
+        }
+      }
+      try{updateBgmPreviewButton&&updateBgmPreviewButton();}catch(_){}
+    };
+  }catch(_){}
+  try{
+    updateBgmPreviewButton=function(){
+      const b=$('bgmPreview');if(!b)return;
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&selectedSameFolderTrack());
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
+      b.classList.toggle('playing',playing);
+    };
+  }catch(_){}
+
+  function ensureDynamicIslandControls(){
+    ensurePauseBadge();
+    const pause=cloneAsOwnedControl('tPause',hardPaused?'RESUME':'PAUSE');
+    const mute=cloneAsOwnedControl('tMute',globalMute?'MUTED':'MUTE');
+    bindOwnedTap(pause,()=>toggleHardPause());
+    bindOwnedTap(mute,()=>toggleGlobalMute());
+    // Keep legacy MENU/RESTART/CAM/PIT/THR handlers, only normalize classes and z-order.
+    for(const id of ['tMenu','tRestart','tCam','tPit','tAutoThr','tDrift','tDrs','tB','tT']){
+      const el=$(id);if(el){el.classList.add('mobileAction');el.style.pointerEvents='auto';}
+    }
+    updatePauseVisual();updateMuteVisual();
+  }
+  ensureDynamicIslandControls();
+
+  const start=$('btnStart');
+  if(start&&!start.dataset.dynamicIslandBgmStart){
+    start.dataset.dynamicIslandBgmStart='1';
+    for(const ev of ['pointerdown','touchstart','mousedown','click']){
+      start.addEventListener(ev,()=>{try{if(BGM)BGM.previewInMenu=true;}catch(_){} playSelectedGithubBgm('start-button',true);},{capture:true,passive:true});
+    }
+  }
+  const preview=$('bgmPreview');
+  if(preview&&!preview.dataset.dynamicIslandBgmPreview){
+    preview.dataset.dynamicIslandBgmPreview='1';
+    preview.addEventListener('click',e=>{
+      try{e.preventDefault();e.stopPropagation();}catch(_){}
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      if(a&&a.src&&!a.paused){try{a.pause();if(BGM)BGM.previewInMenu=false;updateBgmPreviewButton();}catch(_){} return;}
+      try{if(BGM)BGM.previewInMenu=true;}catch(_){}
+      playSelectedGithubBgm('preview-click',true);
+    },{capture:true,passive:false});
+  }
+  const bgmSelect=$('bgmTrack');
+  if(bgmSelect&&!bgmSelect.dataset.dynamicIslandBgmSelect){
+    bgmSelect.dataset.dynamicIslandBgmSelect='1';
+    bgmSelect.addEventListener('change',()=>{try{if(typeof storageSet==='function')storageSet('raceBgmChoice',bgmSelect.value);}catch(_){} if(state==='menu'){try{if(BGM)BGM.previewInMenu=true;}catch(_){} } setTimeout(()=>playSelectedGithubBgm('select-change',state==='menu'),20);},{passive:true});
+  }
+  document.addEventListener('keydown',e=>{
+    if(String(e.key||'').toLowerCase()==='m'){
+      stopEvt(e);toggleGlobalMute();
+    }
+  },{capture:true,passive:false});
+
+  // Capture drive/control gestures and keep GitHub audio alive after any iOS touch event.
+  for(const ev of ['pointerdown','touchstart','click','pointerup','touchend','keydown','keyup']){
+    document.addEventListener(ev,e=>{
+      const target=e.target;
+      const drive=!!(target&&((target.id||'').startsWith('t')||(target.closest&&target.closest('#touch'))));
+      if(drive||/^key/i.test(ev)){
+        setTimeout(()=>{applyGlobalMute(globalMute);if(!globalMute)playSelectedGithubBgm('input-keepalive');},0);
+        setTimeout(()=>{applyGlobalMute(globalMute);if(!globalMute)playSelectedGithubBgm('input-keepalive-late');},180);
+      }
+    },{capture:false,passive:true});
+  }
+
+  setInterval(()=>{
+    ensureDynamicIslandControls();
+    if(state==='menu'||state==='finished')setHardPause(false);
+    applyGlobalMute(globalMute);
+    if(!globalMute)playSelectedGithubBgm('interval');
+  },1000);
+
+  setTimeout(()=>{try{if(window.__refreshSameFolderMusic)window.__refreshSameFolderMusic(false).then(()=>playSelectedGithubBgm('initial-refresh'));}catch(_){}},500);
+})();
+/* END DYNAMIC ISLAND SAFE UI + ROBUST AUDIO/MUTE PATCH */
+
+
+
+/* ============================================================
+   FINAL AUDIO BUS ROUTING PATCH — 2026-06-29
+   - Last-stage fix for iPhone/Safari BGM silence after selecting GitHub same-folder audio.
+   - Keeps external HTMLAudio routed through WebAudio MediaElementSource gain when that route exists.
+   - Syncs all stacked mute flags so MUTE remains whole-game mute.
+   ============================================================ */
+(function installFinalAudioBusRoutingPatch(){
+  if(window.__finalAudioBusRoutingPatch)return;
+  window.__finalAudioBusRoutingPatch=true;
+  const $=id=>document.getElementById(id);
+  const SAME_PREFIX='samefolder:';
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  function choice(){try{return bgmChoice();}catch(_){const e=$('bgmTrack');return e?e.value:'';}}
+  function isSameChoice(v=choice()){return typeof v==='string'&&v.startsWith(SAME_PREFIX);}
+  function enabled(){try{return !!bgmEnabled();}catch(_){const e=$('optBgm');return !!(e&&e.checked);}}
+  function volume(){try{return clamp(bgmVolume(),0,1);}catch(_){const e=$('bgmVolume');return clamp((parseInt(e&&e.value,10)||0)/100,0,1);}}
+  function wanted(){try{return enabled()&&isSameChoice()&&(state!=='menu'||(typeof BGM!=='undefined'&&BGM.previewInMenu));}catch(_){return false;}}
+  function muted(){
+    return !!(window.__f1GlobalSoundMuted||window.__allGameSoundMuted||window.__wholeGameMuted||document.body.classList.contains('all-sound-muted'));
+  }
+  function sourceForChoice(){try{return isSameChoice()?resolveBgmSource(choice()):null;}catch(_){return null;}}
+  function audioEl(){try{return (typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');}catch(_){return $('bgmAudio');}}
+  function syncMuteFlags(on=muted()){
+    window.__f1GlobalSoundMuted=!!on;
+    window.__allGameSoundMuted=!!on;
+    window.__wholeGameMuted=!!on;
+    try{if(typeof SND!=='undefined'){SND.muted=!!on;if(SND.master&&SND.master.gain){if(SND.ctx&&typeof setAudioParam==='function')setAudioParam(SND.master.gain,on?0:0.86,on?0.018:0.055);else SND.master.gain.value=on?0:0.86;}}}catch(_){ }
+    const b=$('tMute');if(b){b.textContent=on?'MUTED':'MUTE';b.classList.toggle('on',!!on);}
+  }
+  function ensureExternalAudioRoute(){
+    const a=audioEl();
+    if(!a)return null;
+    try{if(typeof initAudio==='function'&&!SND.ctx)initAudio();}catch(_){ }
+    try{if(SND&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
+    try{
+      if(SND&&SND.ctx&&!SND.bgmExternalSource){
+        SND.bgmExternalSource=SND.ctx.createMediaElementSource(a);
+        SND.bgmExternalGain=SND.ctx.createGain();
+        SND.bgmExternalGain.gain.value=0;
+        SND.bgmExternalSource.connect(SND.bgmExternalGain);
+        SND.bgmExternalGain.connect(SND.master);
+      }
+    }catch(_){ }
+    try{a.playsInline=true;a.setAttribute('playsinline','');a.preload='auto';a.loop=true;}catch(_){ }
+    return a;
+  }
+  function applyBgmBus(mul=1){
+    const a=ensureExternalAudioRoute();
+    const m=muted();
+    syncMuteFlags(m);
+    const src=sourceForChoice();
+    const should=!!(a&&src&&wanted()&&!m);
+    const vol=volume();
+    try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.055);}catch(_){ }
+    try{
+      if(a){
+        a.muted=!should;
+        a.volume=(SND&&SND.bgmExternalGain)?1:vol*0.95;
+      }
+    }catch(_){ }
+    try{
+      if(SND&&SND.bgmExternalGain){
+        const active=should&&a&&!a.paused;
+        setAudioParam(SND.bgmExternalGain.gain,active?vol*1.18*Math.max(0,Number(mul)||0):0,0.075);
+      }
+    }catch(_){ }
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function playSelected(reason='final-bus',fromGesture=false){
+    if(muted())return false;
+    const src=sourceForChoice();
+    if(!src||!src.src||!enabled())return false;
+    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+    const a=ensureExternalAudioRoute();
+    if(!a)return false;
+    try{
+      const abs=new URL(src.src,document.baseURI).href;
+      if(a.src!==abs){a.src=src.src;a.load();a.currentTime=0;}
+      if(typeof BGM!=='undefined'){
+        BGM.externalActive=true;
+        BGM.fallbackNotified=false;
+        BGM.sourceKey=choice()+'|'+abs;
+        if(state==='menu'&&fromGesture)BGM.previewInMenu=true;
+      }
+      a.muted=false;
+      a.volume=(SND&&SND.bgmExternalGain)?1:volume()*0.95;
+      const p=a.play();
+      if(p&&typeof p.then==='function')p.then(()=>{try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }applyBgmBus(1);try{if(typeof setBgmStatus==='function')setBgmStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+(src.name||'BGM'),'ready');}catch(_){ }}).catch(()=>{try{if(typeof setBgmStatus==='function')setBgmStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 같은 폴더 검색을 한 번 더 눌러 주세요.','error');}catch(_){ }});
+      applyBgmBus(1);
+      return true;
+    }catch(_){return false;}
+  }
+  window.__playSelectedGithubBgmFinalBus=playSelected;
+
+  const oldUpdate=(typeof updateBackgroundMusic==='function')?updateBackgroundMusic:null;
+  updateBackgroundMusic=function(mul=1){
+    if(isSameChoice())return applyBgmBus(mul);
+    return oldUpdate?oldUpdate.apply(this,arguments):undefined;
+  };
+  const oldStart=(typeof startBackgroundMusic==='function')?startBackgroundMusic:null;
+  startBackgroundMusic=function(opts={}){
+    if(isSameChoice()&&enabled()){
+      const r=(typeof window.__playSelectedGithubBgm==='function')?window.__playSelectedGithubBgm('final-bus-start',!!(opts&&opts.preview)):playSelected('final-bus-start',!!(opts&&opts.preview));
+      setTimeout(()=>{playSelected('final-bus-late');applyBgmBus(1);},160);
+      return r;
+    }
+    return oldStart?oldStart.apply(this,arguments):undefined;
+  };
+
+  for(const ev of ['pointerdown','touchstart','click','keydown']){
+    document.addEventListener(ev,()=>{setTimeout(()=>{syncMuteFlags(muted());if(!muted()&&wanted())playSelected('gesture-keepalive');applyBgmBus(1);},80);},{capture:true,passive:true});
+  }
+  const start=$('btnStart');
+  if(start&&!start.dataset.finalAudioBus){
+    start.dataset.finalAudioBus='1';
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])start.addEventListener(ev,()=>{
+      try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;}catch(_){ }
+      try{if(window.__refreshSameFolderMusic)window.__refreshSameFolderMusic(false).then(()=>setTimeout(()=>playSelected('start-refresh',true),120));}catch(_){ }
+      setTimeout(()=>playSelected('start-gesture',true),220);
+      setTimeout(()=>applyBgmBus(1),420);
+    },{capture:true,passive:true});
+  }
+  setInterval(()=>{syncMuteFlags(muted());if(!muted()&&wanted())playSelected('interval');applyBgmBus(1);},900);
+})();
+/* END FINAL AUDIO BUS ROUTING PATCH */
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
