@@ -446,7 +446,7 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
 
 <div id="touch">
   <div id="mobileRotate">가로 모드 권장 · iPhone Safari 최적화</div>
-  <div class="mobileHint" id="mobileHint">왼쪽 조향 · 오른쪽 가속/브레이크 · DRS/CAM/PIT/GEAR 터치</div>
+  <div class="mobileHint" id="mobileHint">왼쪽 조향 · 오른쪽 가속/브레이크 · DRS/DRIFT/PAUSE/CAM/PIT 터치</div>
   <div class="tbtn" id="tL">◀</div><div class="tbtn" id="tR">▶</div>
   <div class="tbtn" id="tB">BRK</div><div class="tbtn" id="tT">THR</div>
   <div class="tbtn mobileAction" id="tDrs">DRS</div>
@@ -470,10 +470,10 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       <div><b>P</b> 피트 요청 &nbsp; <b>Esc</b> 시작 메뉴 &nbsp; <b>M</b> 음소거</div>
     </div>
     <div class="opts">
-      <label><input type="checkbox" id="optAssist" checked> 조작 보조</label>
+      <label><input type="checkbox" id="optAssist"> 조작 보조</label>
       <label><input type="checkbox" id="optTC" checked> 트랙션</label>
       <label><input type="checkbox" id="optABS" checked> ABS</label>
-      <label><input type="checkbox" id="optAT" checked> 오토기어</label>
+      <label><input type="checkbox" id="optAT" checked disabled> 오토기어 고정</label>
     </div>
     <div class="modeTitle">MOBILE GYRO STEERING</div>
     <div class="gyroMenuBox" id="gyroMenuBox">
@@ -483,13 +483,6 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       </div>
       <label class="gyroMenuSens"><span>감도</span><input id="menuGyroSens" type="range" min="0.80" max="6.00" step="0.05" value="2.40"><span id="menuGyroSensValue">2.40x</span></label>
       <div class="gyroMenuNote">START를 누르면 오디오와 자이로 권한을 함께 요청합니다. 팝업이 뜨면 허용을 누르세요. 현재 각도를 중앙값으로 자동 보정하며, 감도가 약하면 2.0x 이상으로 올리세요.<div id="gyroPermissionHint" style="margin-top:5px;color:#36e6ff;font-weight:800;letter-spacing:.4px;">권한 상태: START 대기</div></div>
-    </div>
-    <div class="modeTitle">DRIVING GUIDE</div>
-    <div class="guideBox">
-      <div class="guideBoxRow">
-        <label><b><input type="checkbox" id="optRacingGuide" checked> FASTEST ROUTE / SPEED LINE</b><small>선택 차량의 폭·그립·다운포스·가속·제동 성능으로 계산한 out-in-out / late-apex 최적 라인을 표시합니다. 초록=가속 여유, 노랑=리프트/유지, 빨강=감속 필요입니다.</small></label>
-        <label><b><input type="checkbox" id="optGuideLabels" checked> SPEED TARGET MARKERS</b><small>차량별 목표 속도 표식을 도로 위에 표시합니다. 미니맵에는 레이싱 라인을 표시하지 않습니다.</small></label>
-      </div>
     </div>
     <div class="modeTitle">MAP / CIRCUIT</div>
     <div class="trackGrid" id="trackGrid">
@@ -636,18 +629,12 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       <input type="range" id="optAICount" min="0" max="30" value="5" step="1">
       <span><span id="aiCountLabel">5</span>대</span>
     </div>
-    <div class="modeTitle">F1 THE MOVIE · BACKGROUND MUSIC</div>
+    <div class="modeTitle">GITHUB SAME-FOLDER BGM</div>
     <div class="musicBox">
       <div class="musicRow">
         <label class="musicToggle"><input type="checkbox" id="optBgm" checked> BGM</label>
         <select id="bgmTrack" aria-label="Background music track">
-          <option value="builtin">CINEMATIC RACE PULSE · 내장 오리지널</option>
-          <option value="score-f1">Hans Zimmer — F1</option>
-          <option value="score-drive-fast">Hans Zimmer — Drive Fast</option>
-          <option value="album-drive">Ed Sheeran — Drive</option>
-          <option value="album-watching">Tate McRae — Just Keep Watching</option>
-          <option value="album-lose-my-mind">Don Toliver ft. Doja Cat — Lose My Mind</option>
-          <option value="local">선택한 로컬 음원</option>
+          <option value="" data-placeholder="1">GitHub에 올린 같은 폴더 음원을 검색하세요</option>
         </select>
         <div class="musicActions">
           <button type="button" class="musicPreview" id="bgmPreview">▶ 미리듣기</button>
@@ -655,8 +642,8 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
         </div>
         <label class="musicVol">VOL <input type="range" id="bgmVolume" min="0" max="100" value="84"></label>
       </div>
-      <div id="bgmFileName" data-state="paused">곡을 선택하면 메뉴에서 바로 미리듣기 할 수 있습니다.</div>
-      <div class="licenseNote">영화 OST 원음원은 저작권상 포함하지 않았습니다. 먼저 곡을 고른 뒤 <b>음원 불러오기</b>로 해당 파일을 선택하면 그 곡에 연결됩니다. 여러 음원도 한 번에 선택할 수 있으며 파일명이 곡명과 비슷하면 자동 매칭됩니다.</div>
+      <div id="bgmFileName" data-state="paused">GitHub에 올린 음악 파일만 선택할 수 있습니다.</div>
+      <div class="licenseNote">GitHub Pages에서 index.html과 같은 위치에 올린 MP3/M4A/WAV/OGG 파일만 BGM 목록에 표시됩니다.</div>
     </div>
     <div class="licenseNote" style="margin-top:10px;text-align:center">Fan-made simulator. Vehicle, film, team and series names are used only for identification; no official affiliation, logos or licensed 3D assets are included.</div>
     <button id="btnStart" class="startFinalButton">START</button>
@@ -4973,7 +4960,7 @@ function updateVehicleClassUI(){
   if(title)title.textContent=cfg.series;if(circuit)circuit.textContent=ACTIVE_TRACK.short;if(sub)sub.textContent=IS_FREE_ROAM?(ACTIVE_TRACK.name+' · '+cfg.title+' · FREE ROAM · NO LAPS'):(ACTIVE_TRACK.name+' · '+cfg.title+' · '+TOTAL_LAPS+' LAPS · PIT '+ACTIVE_TRACK.pitLimit+' km/h');
   if(special)special.textContent='드리프트·핸드브레이크';if(specialKey)specialKey.textContent='Space';if(drsKey)drsKey.textContent='F';if(drsControl){drsControl.textContent=cfg.drs?'DRS':'DRS (F1 전용)';drsControl.style.opacity=cfg.drs?'1':'.55';}
   const hint=document.getElementById('classHint');if(hint){const roster=cfg.realTeams===false?'개 리버리 세트':'개 실존 팀 명단';hint.textContent=cfg.title+' 차량으로 플레이어와 모든 경쟁차가 교체됩니다. '+(cfg.specLine?cfg.specLine+' · ':'')+cfg.teams.length+roster+'와 클래스별 안정화 물리가 적용됩니다.';}
-  const input=document.getElementById('optAICount');if(input){input.max=String(cfg.maxAI);input.value=String(normalizeAICountForFormat(parseInt(input.value,10)||parseInt(storageGet('raceAI',String(DEFAULT_AI)),10)||DEFAULT_AI));}
+  const input=document.getElementById('optAICount');if(input){input.max=String(cfg.maxAI);const rawAi=parseInt(input.value,10);const storedAi=parseInt(storageGet('raceAI',String(DEFAULT_AI)),10);const chosenAi=Number.isFinite(rawAi)?rawAi:(Number.isFinite(storedAi)?storedAi:DEFAULT_AI);input.value=String(normalizeAICountForFormat(chosenAi));}
   const driftTag=document.getElementById('tagDRIFT');if(driftTag){driftTag.textContent='DRIFT';driftTag.style.display='inline-block';}const tag=document.getElementById('tagDRS');if(tag){tag.textContent='DRS';tag.style.display=cfg.drs?'inline-block':'none';}
   const front=document.getElementById('dmgFrontLabel');if(front)front.textContent=cfg.frontDamageLabel;
   populateTeamSelector();updateTeamModeUI();updateAICountLabel();
@@ -4983,7 +4970,7 @@ function updateTeamModeUI(){
   const el=document.getElementById('optAICount'),team=getSelectedTeamMode();if(!el)return;
   if(IS_FREE_ROAM){el.value='0';el.disabled=true;const lab=document.getElementById('aiCountLabel');if(lab)lab.textContent='0';const hint=document.getElementById('teamModeHint');if(hint)hint.style.display='none';return;}
   el.disabled=false;
-  const current=parseInt(el.value,10)||DEFAULT_AI;
+  const parsedCurrent=parseInt(el.value,10);const current=Number.isFinite(parsedCurrent)?parsedCurrent:DEFAULT_AI;
   const max=selectedVehicleConfig().maxAI;el.min=team?'1':'0';el.max=String(max);el.step=team?'2':'1';el.value=String(normalizeAICountForFormat(current));
   const hint=document.getElementById('teamModeHint');if(hint)hint.style.display=team?'block':'none';
   updateAICountLabel();
@@ -12195,6 +12182,1311 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   }
 })();
 /* END USER REQUESTED MOBILE MENU + GYRO FINAL CLEANUP PATCH */
+
+
+/* ============================================================
+   USER REQUESTED MOBILE PLAYABILITY FINAL PATCH — 2026-06
+   - Assist default off; automatic gear only.
+   - Start menu values do not mutate unless the user changes them.
+   - Removes adaptive speed guide / target marker UI and on-road guide visibility.
+   - BGM list is restricted to same-folder GitHub audio files.
+   - Adds in-race pause button and closer default chase camera.
+   ============================================================ */
+(function installUserRequestedMobilePlayabilityFinalPatch(){
+  if(window.__userRequestedMobilePlayabilityFinalPatch)return;
+  window.__userRequestedMobilePlayabilityFinalPatch=true;
+  const clampLocal=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerpLocal=(a,b,t)=>a+(b-a)*clampLocal(t,0,1);
+  const SAME_PREFIX='samefolder:';
+  const PREF_KEY='f1MobileStartMenuStablePrefs_20260629';
+  const USER_DEFAULT_KEY='f1MobileUserTouchedAssist_20260629d';
+
+  const finalStyle=document.createElement('style');
+  finalStyle.textContent=`
+    .guideBox,#guideReadout,#optRacingGuide,#optGuideLabels{display:none!important;}
+    #tGearUp,#tGearDn{display:none!important;pointer-events:none!important;}
+    #bgmBrowse,.musicFile{display:none!important;pointer-events:none!important;}
+    #btnStart.startFinalButton{position:static!important;display:block!important;width:100%!important;margin:22px auto calc(24px + env(safe-area-inset-bottom))!important;}
+    body.mobile-build #tPause,body.ios-native-app #tPause{right:calc(12px + env(safe-area-inset-right));top:calc(114px + env(safe-area-inset-top));border-color:rgba(255,210,74,.62)!important;color:#ffd24a!important;}
+    body.mobile-build #tDrift,body.ios-native-app #tDrift{right:calc(76px + env(safe-area-inset-right));top:calc(114px + env(safe-area-inset-top));}
+    body.mobile-build #tCam,body.ios-native-app #tCam{right:calc(76px + env(safe-area-inset-right));top:calc(66px + env(safe-area-inset-top));}
+    body.mobile-build #tPit,body.ios-native-app #tPit{right:calc(140px + env(safe-area-inset-right));top:calc(66px + env(safe-area-inset-top));}
+    @media (orientation:portrait){body.mobile-build #tPause,body.ios-native-app #tPause{right:calc(12px + env(safe-area-inset-right));bottom:calc(232px + env(safe-area-inset-bottom))!important;top:auto!important;}body.mobile-build #tDrift,body.ios-native-app #tDrift{right:calc(76px + env(safe-area-inset-right));bottom:calc(232px + env(safe-area-inset-bottom))!important;top:auto!important;}}
+    .pauseBadge{position:fixed;left:50%;top:calc(15% + env(safe-area-inset-top));transform:translateX(-50%);z-index:30;padding:12px 22px;border-radius:12px;background:rgba(5,8,12,.82);border:1px solid rgba(255,210,74,.68);color:#ffd24a;font-size:24px;font-weight:900;letter-spacing:3px;box-shadow:0 10px 28px rgba(0,0,0,.38);pointer-events:none;}
+  `;
+  document.head.appendChild(finalStyle);
+
+  function readPrefs(){try{return JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(_){return {};}}
+  function writePrefs(prefs){try{localStorage.setItem(PREF_KEY,JSON.stringify(prefs));}catch(_){}}
+  function setStablePrefForElement(el){
+    if(!el||el.type==='file')return;
+    const prefs=readPrefs();
+    if(el.name&&el.type==='radio'){if(el.checked)prefs['radio:'+el.name]=el.value;}
+    else if(el.id){prefs['id:'+el.id]=(el.type==='checkbox')?!!el.checked:el.value;}
+    writePrefs(prefs);
+  }
+  function storeCorePrefs(){
+    try{
+      const prefs=readPrefs();
+      const ai=document.getElementById('optAICount');if(ai){prefs['id:optAICount']=ai.value;prefs['app:raceAI']=ai.value;storageSet&&storageSet('raceAI',ai.value);}
+      const assist=document.getElementById('optAssist');if(assist)prefs['id:optAssist']=!!assist.checked;
+      const at=document.getElementById('optAT');if(at)prefs['id:optAT']=true;
+      const tc=document.getElementById('optTC');if(tc)prefs['id:optTC']=!!tc.checked;
+      const abs=document.getElementById('optABS');if(abs)prefs['id:optABS']=!!abs.checked;
+      const bgm=document.getElementById('optBgm');if(bgm)prefs['id:optBgm']=!!bgm.checked;
+      const vol=document.getElementById('bgmVolume');if(vol)prefs['id:bgmVolume']=vol.value;
+      const cls=document.querySelector('input[name="vehicleClass"]:checked');if(cls){prefs['radio:vehicleClass']=cls.value;storageSet&&storageSet('raceClass',cls.value);}
+      const fmt=document.querySelector('input[name="raceFormat"]:checked');if(fmt)prefs['radio:raceFormat']=fmt.value;
+      const dmg=document.querySelector('input[name="raceMode"]:checked');if(dmg)prefs['radio:raceMode']=dmg.value;
+      const team=document.getElementById('teamSelect');if(team&&cls){prefs['id:teamSelect']=team.value;storageSet&&storageSet('raceTeam_'+cls.value,team.value);}
+      writePrefs(prefs);
+    }catch(_){ }
+  }
+  window.__storeFinalMenuPrefs=storeCorePrefs;
+
+  function removeGuideMenuAndDisableGuide(){
+    try{
+      const guideBox=document.querySelector('.guideBox');
+      if(guideBox){
+        const prev=guideBox.previousElementSibling;
+        if(prev&&prev.classList&&prev.classList.contains('modeTitle')&&/DRIVING GUIDE/i.test(prev.textContent||''))prev.remove();
+        guideBox.remove();
+      }
+      for(const id of ['optRacingGuide','optGuideLabels']){const el=document.getElementById(id);if(el)el.checked=false;}
+      try{storageSet('raceGuideLine','0');storageSet('raceGuideLabels','0');}catch(_){ }
+      const gp=window.__racingGuideAndBuilderPatch;
+      if(gp){
+        gp.guideEnabled=()=>false;
+        gp.guideLabelsEnabled=()=>false;
+        if(gp.guide){
+          if(gp.guide.group)gp.guide.group.visible=false;
+          if(gp.guide.labels)gp.guide.labels.visible=false;
+        }
+      }
+      const readout=document.getElementById('guideReadout');if(readout)readout.style.setProperty('display','none','important');
+    }catch(_){ }
+  }
+
+  function forceAutoGearOnly(){
+    try{
+      const at=document.getElementById('optAT');
+      if(at){
+        at.checked=true;
+        at.disabled=true;
+        const label=at.closest('label');
+        if(label&&!label.dataset.autoOnlyLabel){
+          label.dataset.autoOnlyLabel='1';
+          for(const n of [...label.childNodes]){if(n.nodeType===3&&/오토기어/.test(n.nodeValue||''))n.nodeValue=' 오토기어 고정';}
+        }
+      }
+      if(typeof optAT!=='undefined'&&optAT)optAT.checked=true;
+      const tag=document.getElementById('tagAT');if(tag)tag.classList.add('on');
+      const ctl=document.querySelector('#startOverlay .ctl');
+      if(ctl&&!ctl.dataset.autoGearOnlyText){
+        ctl.dataset.autoGearOnlyText='1';
+        ctl.innerHTML=ctl.innerHTML
+          .replace(/&nbsp; <b>Shift \/ Ctrl<\/b> 기어 ▲▼/g,'')
+          .replace(/ &nbsp; <b>G<\/b> 오토기어/g,'');
+      }
+    }catch(_){ }
+  }
+
+  function applyAssistDefault(){
+    try{
+      const assist=document.getElementById('optAssist');
+      if(!assist)return;
+      if(localStorage.getItem(USER_DEFAULT_KEY)!=='1'){
+        assist.checked=false;
+        const prefs=readPrefs();prefs['id:optAssist']=false;writePrefs(prefs);
+      }
+    }catch(_){ }
+  }
+
+  function selectedMaxAI(){try{return Math.max(0,Number(selectedVehicleConfig&&selectedVehicleConfig().maxAI)||30);}catch(_){return 30;}}
+  function fixedNormalizeAICount(n){
+    const max=selectedMaxAI();
+    n=Number.isFinite(n)?n:0;
+    if(typeof getSelectedTeamMode==='function'&&getSelectedTeamMode()){
+      n=clampLocal(n,1,max);
+      if(n%2===0)n=n<max?n+1:n-1;
+      return Math.max(1,n);
+    }
+    return clampLocal(n,0,max);
+  }
+  const prevUpdateTeamModeUI=(typeof updateTeamModeUI==='function')?updateTeamModeUI:null;
+  if(prevUpdateTeamModeUI&&!prevUpdateTeamModeUI.__finalNoMutate){
+    updateTeamModeUI=function(){
+      const el=document.getElementById('optAICount');
+      if(!el){return prevUpdateTeamModeUI.apply(this,arguments);}
+      if(typeof IS_FREE_ROAM!=='undefined'&&IS_FREE_ROAM){
+        el.value='0';el.disabled=true;
+        const lab=document.getElementById('aiCountLabel');if(lab)lab.textContent='0';
+        const hint=document.getElementById('teamModeHint');if(hint)hint.style.display='none';
+        return;
+      }
+      const raw=Number.parseInt(el.value,10);
+      const current=Number.isFinite(raw)?raw:0;
+      const team=(typeof getSelectedTeamMode==='function')&&getSelectedTeamMode();
+      const max=selectedMaxAI();
+      el.disabled=false;
+      el.min=team?'1':'0';
+      el.max=String(max);
+      el.step=team?'2':'1';
+      el.value=String(fixedNormalizeAICount(current));
+      const hint=document.getElementById('teamModeHint');if(hint)hint.style.display=team?'block':'none';
+      if(typeof updateAICountLabel==='function')updateAICountLabel();
+    };
+    updateTeamModeUI.__finalNoMutate=true;
+  }
+  const prevUpdateVehicleClassUI=(typeof updateVehicleClassUI==='function')?updateVehicleClassUI:null;
+  if(prevUpdateVehicleClassUI&&!prevUpdateVehicleClassUI.__finalPreserveAI){
+    updateVehicleClassUI=function(){
+      const ai=document.getElementById('optAICount');
+      const before=ai&&Number.isFinite(Number.parseInt(ai.value,10))?Number.parseInt(ai.value,10):null;
+      const r=prevUpdateVehicleClassUI.apply(this,arguments);
+      if(ai&&before!==null){ai.value=String(fixedNormalizeAICount(before));}
+      if(typeof updateAICountLabel==='function')updateAICountLabel();
+      forceAutoGearOnly();removeGuideMenuAndDisableGuide();sanitizeGithubOnlyBgmSelect(false);storeCorePrefs();
+      return r;
+    };
+    updateVehicleClassUI.__finalPreserveAI=true;
+  }
+  const prevGoToStartMenu=(typeof goToStartMenu==='function')?goToStartMenu:null;
+  if(prevGoToStartMenu&&!prevGoToStartMenu.__finalPreserveMenu){
+    goToStartMenu=function(){
+      const ai=document.getElementById('optAICount');
+      const aiBefore=ai?ai.value:null;
+      storeCorePrefs();
+      const r=prevGoToStartMenu.apply(this,arguments);
+      if(ai&&aiBefore!==null){ai.value=String(fixedNormalizeAICount(Number.parseInt(aiBefore,10)));}
+      if(typeof updateAICountLabel==='function')updateAICountLabel();
+      applyAssistDefault();forceAutoGearOnly();removeGuideMenuAndDisableGuide();sanitizeGithubOnlyBgmSelect(false);storeCorePrefs();
+      return r;
+    };
+    goToStartMenu.__finalPreserveMenu=true;
+  }
+  const prevStartRace=(typeof startRace==='function')?startRace:null;
+  if(prevStartRace&&!prevStartRace.__finalPrefsBeforeStart){
+    startRace=function(){
+      applyAssistDefault();forceAutoGearOnly();removeGuideMenuAndDisableGuide();sanitizeGithubOnlyBgmSelect(false);storeCorePrefs();
+      const r=prevStartRace.apply(this,arguments);
+      forceAutoGearOnly();removeGuideMenuAndDisableGuide();
+      return r;
+    };
+    startRace.__finalPrefsBeforeStart=true;
+  }
+
+  function installMenuChangeGuards(){
+    const root=document.getElementById('startOverlay');if(!root||root.dataset.finalNoMutateGuard)return;
+    root.dataset.finalNoMutateGuard='1';
+    for(const ev of ['input','change']){
+      root.addEventListener(ev,e=>{
+        const t=e.target;
+        if(t&&t.id==='optAssist'){try{localStorage.setItem(USER_DEFAULT_KEY,'1');}catch(_){ }}
+        if(t&&t.id==='optAT'){forceAutoGearOnly();}
+        if(t&&t.id==='optAICount'){const n=Number.parseInt(t.value,10);t.value=String(fixedNormalizeAICount(Number.isFinite(n)?n:0));if(typeof updateAICountLabel==='function')updateAICountLabel();}
+        if(t&&t.id==='bgmTrack')sanitizeGithubOnlyBgmSelect(false);
+        setStablePrefForElement(t);
+        setTimeout(()=>{applyAssistDefault();forceAutoGearOnly();removeGuideMenuAndDisableGuide();sanitizeGithubOnlyBgmSelect(false);storeCorePrefs();},0);
+      },{capture:true,passive:true});
+    }
+  }
+
+  function sanitizeGithubOnlyBgmSelect(autoPick=true){
+    try{
+      const select=document.getElementById('bgmTrack');if(!select)return;
+      const current=select.value;
+      // Remove all built-in, preset, and local-file entries.  Keep only same-folder GitHub entries.
+      [...select.querySelectorAll('option')].forEach(o=>{if(!String(o.value||'').startsWith(SAME_PREFIX))o.remove();});
+      [...select.querySelectorAll('optgroup')].forEach(g=>{if(!g.querySelector('option'))g.remove();});
+      const valid=[...select.options].filter(o=>String(o.value||'').startsWith(SAME_PREFIX));
+      if(!valid.length){
+        if(!select.querySelector('option[data-placeholder="github-music"]')){
+          const ph=document.createElement('option');ph.value='';ph.disabled=true;ph.selected=true;ph.dataset.placeholder='github-music';ph.textContent='GitHub 같은 폴더 음악을 검색하세요';select.appendChild(ph);
+        }
+        select.value='';
+        const toggle=document.getElementById('optBgm');if(toggle)toggle.checked=false;
+        const a=(typeof bgmAudio==='function')?bgmAudio():document.getElementById('bgmAudio');if(a){try{a.pause();a.removeAttribute('src');a.load();}catch(_){}}
+        if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.fallbackNotified=false;BGM.sourceKey=null;}
+        if(typeof SND!=='undefined'&&SND.bgmGain&&typeof setAudioParam==='function')setAudioParam(SND.bgmGain.gain,0,0.05);
+        if(typeof setBgmStatus==='function')setBgmStatus('GitHub에 올린 음악 파일을 찾지 못했습니다. 같은 폴더 검색을 눌러 주세요.','paused');
+        return;
+      }
+      [...select.querySelectorAll('option[data-placeholder="github-music"]')].forEach(o=>o.remove());
+      const saved=(()=>{try{return localStorage.getItem('f1SameFolderBgmChoice_20260629d')||'';}catch(_){return '';}})();
+      if(valid.some(o=>o.value===current))select.value=current;
+      else if(saved&&valid.some(o=>o.value===saved))select.value=saved;
+      else if(autoPick||!String(select.value||'').startsWith(SAME_PREFIX))select.value=valid[0].value;
+      const toggle=document.getElementById('optBgm');if(toggle&&!toggle.dataset.userTurnedOff)toggle.checked=true;
+      try{localStorage.setItem('f1SameFolderBgmChoice_20260629d',select.value);}catch(_){ }
+      if(typeof setBgmStatus==='function')setBgmStatus('GitHub 같은 폴더 음악 '+valid.length+'곡 사용 가능 · '+(typeof bgmChoiceLabel==='function'?bgmChoiceLabel(select.value):select.value),'ready');
+    }catch(_){ }
+  }
+  const prevResolve=(typeof resolveBgmSource==='function')?resolveBgmSource:null;
+  if(prevResolve&&!prevResolve.__githubOnly){
+    resolveBgmSource=function(choice){
+      if(String(choice||'').startsWith(SAME_PREFIX))return prevResolve.call(this,choice);
+      return null;
+    };
+    resolveBgmSource.__githubOnly=true;
+  }
+  const prevBgmChoice=(typeof bgmChoice==='function')?bgmChoice:null;
+  if(prevBgmChoice&&!prevBgmChoice.__githubOnly){
+    bgmChoice=function(){
+      const e=document.getElementById('bgmTrack');
+      const v=e?String(e.value||''):'';
+      return v.startsWith(SAME_PREFIX)?v:'';
+    };
+    bgmChoice.__githubOnly=true;
+  }
+  const prevBgmEnabled=(typeof bgmEnabled==='function')?bgmEnabled:null;
+  if(prevBgmEnabled&&!prevBgmEnabled.__githubOnly){
+    bgmEnabled=function(){
+      const e=document.getElementById('optBgm');
+      const choice=(typeof bgmChoice==='function')?bgmChoice():'';
+      return !!(e&&e.checked&&choice&&choice.startsWith(SAME_PREFIX));
+    };
+    bgmEnabled.__githubOnly=true;
+  }
+  const prevFallback=(typeof fallbackToBuiltInBgm==='function')?fallbackToBuiltInBgm:null;
+  if(prevFallback&&!prevFallback.__githubOnlyNoBuiltin){
+    fallbackToBuiltInBgm=function(note){
+      try{stopExternalBgm&&stopExternalBgm(true);}catch(_){ }
+      try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.fallbackNotified=false;BGM.sourceKey=null;}}catch(_){ }
+      try{if(typeof SND!=='undefined'&&SND.bgmGain&&typeof setAudioParam==='function')setAudioParam(SND.bgmGain.gain,0,0.05);}catch(_){ }
+      if(typeof setBgmStatus==='function')setBgmStatus(note||'GitHub 같은 폴더 음악 파일만 사용할 수 있습니다.','error');
+      if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();
+    };
+    fallbackToBuiltInBgm.__githubOnlyNoBuiltin=true;
+  }
+  const prevUpdateBgm=(typeof updateBackgroundMusic==='function')?updateBackgroundMusic:null;
+  if(prevUpdateBgm&&!prevUpdateBgm.__noInternalBgm){
+    updateBackgroundMusic=function(mul){
+      const r=prevUpdateBgm.apply(this,arguments);
+      try{if(typeof SND!=='undefined'&&SND.bgmGain&&typeof setAudioParam==='function')setAudioParam(SND.bgmGain.gain,0,0.04);}catch(_){ }
+      return r;
+    };
+    updateBackgroundMusic.__noInternalBgm=true;
+  }
+  const bgmSelect=document.getElementById('bgmTrack');
+  if(bgmSelect&&!bgmSelect.dataset.githubOnlyGuard){
+    bgmSelect.dataset.githubOnlyGuard='1';
+    bgmSelect.addEventListener('change',()=>{sanitizeGithubOnlyBgmSelect(false);try{localStorage.setItem('f1SameFolderBgmChoice_20260629d',bgmSelect.value||'');}catch(_){ }},{capture:true,passive:true});
+    if(typeof MutationObserver!=='undefined')new MutationObserver(()=>setTimeout(()=>sanitizeGithubOnlyBgmSelect(true),0)).observe(bgmSelect,{childList:true,subtree:true});
+  }
+  const bgmToggle=document.getElementById('optBgm');
+  if(bgmToggle&&!bgmToggle.dataset.githubOnlyGuard){
+    bgmToggle.dataset.githubOnlyGuard='1';
+    bgmToggle.addEventListener('change',()=>{if(!bgmToggle.checked)bgmToggle.dataset.userTurnedOff='1';else delete bgmToggle.dataset.userTurnedOff;sanitizeGithubOnlyBgmSelect(false);},{capture:true,passive:true});
+  }
+
+  function installPauseButton(){
+    const touchEl=document.getElementById('touch');if(!touchEl)return;
+    let btn=document.getElementById('tPause');
+    if(!btn){btn=document.createElement('div');btn.className='tbtn mobileAction';btn.id='tPause';btn.textContent='PAUSE';touchEl.appendChild(btn);}
+    if(btn.dataset.pauseInstalled)return;
+    btn.dataset.pauseInstalled='1';
+    const down=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }toggleRacePause();};
+    for(const ev of ['pointerdown','touchstart','mousedown','click'])btn.addEventListener(ev,down,{passive:false});
+  }
+  let paused=false;
+  function pauseBadge(show){
+    let el=document.getElementById('pauseBadge');
+    if(show){
+      if(!el){el=document.createElement('div');el.id='pauseBadge';el.className='pauseBadge';el.textContent='PAUSED';document.body.appendChild(el);}
+      el.style.display='block';
+    }else if(el){el.style.display='none';}
+    const b=document.getElementById('tPause');if(b)b.textContent=show?'RESUME':'PAUSE';
+  }
+  function clearDriveInputs(){
+    try{for(const k of ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' ','f','e','shift','control'])keys[k]=false;}catch(_){ }
+    try{touch.l=false;touch.r=false;touch.t=false;touch.b=false;}catch(_){ }
+    try{if(window.IOS_APP_INPUT){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;IOS_APP_INPUT.drift=false;}}catch(_){ }
+    try{if(car){car.thr=0;car.brk=0;car.steer=0;}}catch(_){ }
+  }
+  function toggleRacePause(){
+    if(!(state==='race'||paused))return;
+    paused=!paused;
+    window.__racePaused=paused;
+    clearDriveInputs();
+    pauseBadge(paused);
+    try{showMsg(paused?'PAUSED':'RESUME','',paused?900000:600);}catch(_){ }
+    if(!paused){const m=document.getElementById('msg');if(m&&m.textContent==='PAUSED')m.style.display='none';}
+  }
+  window.__toggleRacePause=toggleRacePause;
+  const wrapSkip=(name)=>{
+    try{
+      const fn=eval(name);
+      if(typeof fn!=='function'||fn.__pauseWrapped)return;
+      const wrapped=function(){if(paused)return;return fn.apply(this,arguments);};
+      wrapped.__pauseWrapped=true;
+      eval(name+'=wrapped');
+    }catch(_){ }
+  };
+  for(const name of ['physStep','updateAI','resolveVehicleCollisions','aiCollideAndRender','updatePitCrew','updatePitGuidanceVisuals'])wrapSkip(name);
+  const prevUpdateInputsPause=(typeof updateInputs==='function')?updateInputs:null;
+  if(prevUpdateInputsPause&&!prevUpdateInputsPause.__pauseWrapped){
+    updateInputs=function(dt){if(paused){clearDriveInputs();return;}return prevUpdateInputsPause.apply(this,arguments);};
+    updateInputs.__pauseWrapped=true;
+  }
+  const prevEnginePause=(typeof updateEngineSound==='function')?updateEngineSound:null;
+  if(prevEnginePause&&!prevEnginePause.__pauseWrapped){
+    updateEngineSound=function(){
+      if(paused){
+        try{if(SND&&SND.eGain)setAudioParam(SND.eGain.gain,0.025,0.08);if(SND&&SND.sGain)setAudioParam(SND.sGain.gain,0,0.05);if(SND&&SND.ai)for(const v of SND.ai)setAudioParam(v.gain.gain,0,0.08);if(typeof updateBackgroundMusic==='function')updateBackgroundMusic(SND&&SND.muted?0:1);}catch(_){ }
+        return;
+      }
+      return prevEnginePause.apply(this,arguments);
+    };
+    updateEngineSound.__pauseWrapped=true;
+  }
+
+  const prevUpdateCameraFinal=(typeof updateCamera==='function')?updateCamera:null;
+  if(prevUpdateCameraFinal&&!prevUpdateCameraFinal.__closerChase){
+    updateCamera=function(dt){
+      const r=prevUpdateCameraFinal.apply(this,arguments);
+      try{
+        if(camMode===0&&state!=='menu'&&car&&S&&S[car.idx]){
+          const cfg=vehicleConfig(currentVehicleClass)||{};
+          const isBike=!!cfg.isBike;
+          const big=(cfg.wall&&cfg.wall.halfW>1.25)||(cfg.obb&&cfg.obb.halfW>1.25);
+          const fx=Math.sin(car.theta),fz=Math.cos(car.theta),y=S[car.idx].p.y,sx=(shake&&shake.x)||0,sy=(shake&&shake.y)||0;
+          const speedRel=clampLocal(Math.abs(car.vx||0)/Math.max(45,(P&&P.topSpeed)||90),0,1);
+          const back=(isBike?5.8:(big?7.8:6.8))+speedRel*0.65;
+          const height=(isBike?2.22:(big?3.05:2.68))+speedRel*0.15;
+          const want=new THREE.Vector3(car.x-fx*back,y+height,car.z-fz*back);
+          camPos.lerp(want,1-Math.exp(-(dt||0.016)*8.0));
+          camera.position.set(camPos.x+sx*.30,camPos.y+sy*.24,camPos.z+sx*.30);
+          camera.lookAt(car.x+fx*5.2,y+(isBike?.82:1.0),car.z+fz*5.2);
+          camera.fov=(isBike?61:58)+Math.min(8,Math.abs(car.vx||0)*0.065)+(car.drs?1.5:0);
+          camera.updateProjectionMatrix();
+        }
+      }catch(_){ }
+      return r;
+    };
+    updateCamera.__closerChase=true;
+  }
+
+  function removeGearButtonsAndManualControls(){
+    for(const id of ['tGearUp','tGearDn']){const el=document.getElementById(id);if(el)el.remove();}
+    try{if(typeof mobileGear==='function')mobileGear=function(){forceAutoGearOnly();try{showMsg('AUTO GEAR ONLY','',500);}catch(_){ }};}catch(_){ }
+    forceAutoGearOnly();
+  }
+
+  function applyFinalUIState(){
+    applyAssistDefault();
+    forceAutoGearOnly();
+    removeGearButtonsAndManualControls();
+    removeGuideMenuAndDisableGuide();
+    installPauseButton();
+    sanitizeGithubOnlyBgmSelect(true);
+    installMenuChangeGuards();
+    const ai=document.getElementById('optAICount');if(ai){ai.max=String(selectedMaxAI());ai.value=String(fixedNormalizeAICount(Number.parseInt(ai.value,10)));if(typeof updateAICountLabel==='function')updateAICountLabel();}
+    const hint=document.getElementById('mobileHint');if(hint)hint.textContent='왼쪽 조향 · 오른쪽 가속/브레이크 · DRS/DRIFT/PAUSE/CAM/PIT 터치';
+    storeCorePrefs();
+  }
+  for(const d of [0,80,250,700,1300,2400])setTimeout(applyFinalUIState,d);
+  window.addEventListener('beforeunload',storeCorePrefs,{capture:true});
+})();
+/* END USER REQUESTED MOBILE PLAYABILITY FINAL PATCH */
+
+
+/* ============================================================
+   USER REQUESTED UI / MENU / BGM / PAUSE / CAMERA CLEANUP PATCH — 2026-06-29
+   - Assist defaults OFF, auto gear only, no gear buttons.
+   - Removes fastest-route/speed-target guide UI and in-race adaptive guide readout.
+   - BGM choices are limited to audio files in the same GitHub Pages folder.
+   - Adds in-race pause button and closer chase camera.
+   - Preserves explicit menu selections, including AI count 0.
+   ============================================================ */
+(function installFinalUserRequestedUiCleanupPatch(){
+  if(window.__finalUserRequestedUiCleanupPatch20260629)return;
+  window.__finalUserRequestedUiCleanupPatch20260629=true;
+
+  const PATCH_PREF_KEY='f1StartMenuUserPrefsLocked_20260629_v2';
+  const ASSIST_TOUCHED_KEY='f1AssistTouched_20260629_v2';
+  const SAME_PREFIX='samefolder:';
+  const $=id=>document.getElementById(id);
+  const qsa=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
+  const safeClamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const safeLerp=(a,b,t)=>a+(b-a)*safeClamp(t,0,1);
+
+  const style=document.createElement('style');
+  style.textContent=`
+    /* Remove the adaptive guide controls and any guide HUD/readout. */
+    #guideReadout,.guideBox,#optRacingGuide,#optGuideLabels{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+    .hideFinalGuideTitle{display:none!important;}
+    /* Auto-gear only: no manual gear UI. */
+    #tGearUp,#tGearDn{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;width:0!important;height:0!important;}
+    .autoGearOnlyHidden{display:none!important;}
+    /* GitHub-folder-only BGM: hide local-file browser. */
+    #bgmBrowse,#bgmFile{display:none!important;visibility:hidden!important;pointer-events:none!important;width:0!important;height:0!important;}
+    .musicBox .licenseNote{display:none!important;}
+    /* Pause overlay. */
+    #pauseOverlayFinal{display:none;position:fixed;inset:0;z-index:70;pointer-events:none;align-items:center;justify-content:center;background:rgba(0,0,0,.10);}
+    #pauseOverlayFinal .pauseCard{padding:18px 30px;border-radius:18px;border:1px solid rgba(255,210,74,.72);background:rgba(8,11,16,.72);box-shadow:0 12px 36px rgba(0,0,0,.42),inset 0 0 20px rgba(255,210,74,.08);color:#ffd24a;font-size:28px;font-weight:900;letter-spacing:4px;text-shadow:0 0 15px rgba(255,210,74,.35);}
+    body.race-paused-final #pauseOverlayFinal{display:flex;}
+    body.ios-native-app #tPause,body.mobile-build #tPause{left:calc(166px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));width:72px;height:42px;font-size:10px;color:#ffd24a;border-color:rgba(255,210,74,.60);background:rgba(50,36,8,.72);}
+    body.ios-native-app #tPause.on,body.mobile-build #tPause.on{background:#ffd24a;color:#111820;border-color:#ffd24a;box-shadow:0 0 18px rgba(255,210,74,.46);}
+    @media(max-width:760px){body.ios-native-app #tPause,body.mobile-build #tPause{left:calc(166px + env(safe-area-inset-left));top:calc(14px + env(safe-area-inset-top));width:64px;height:42px;font-size:9px;}body.ios-native-app #tCam,body.mobile-build #tCam{right:calc(16px + env(safe-area-inset-right));top:calc(14px + env(safe-area-inset-top));}body.ios-native-app #tPit,body.mobile-build #tPit{right:calc(84px + env(safe-area-inset-right));top:calc(14px + env(safe-area-inset-top));}}
+  `;
+  document.head.appendChild(style);
+
+  function showPauseOverlay(){
+    if(!$('pauseOverlayFinal')){
+      const o=document.createElement('div');
+      o.id='pauseOverlayFinal';
+      o.innerHTML='<div class="pauseCard">PAUSED</div>';
+      document.body.appendChild(o);
+    }
+    document.body.classList.toggle('race-paused-final',!!window.__racePausedFinal);
+    const b=$('tPause');
+    if(b){b.classList.toggle('on',!!window.__racePausedFinal);b.textContent=window.__racePausedFinal?'RESUME':'PAUSE';}
+  }
+
+  function setRacePaused(on){
+    window.__racePausedFinal=!!on;
+    for(const k in keys){if(k!=='m')keys[k]=false;}
+    try{
+      if(typeof touch==='object'){touch.l=false;touch.r=false;touch.t=false;touch.b=false;}
+      if(window.IOS_APP_INPUT){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;}
+    }catch(_){ }
+    if(car){car.thr=0;car.brk=0;}
+    showPauseOverlay();
+    if(typeof showMsg==='function')showMsg(window.__racePausedFinal?'PAUSED':'RESUME','',520);
+  }
+  function togglePause(){
+    if(!(state==='race'))return;
+    setRacePaused(!window.__racePausedFinal);
+  }
+
+  function ensurePauseButton(){
+    const root=$('touch');
+    if(!root)return;
+    if(!$('tPause')){
+      const b=document.createElement('div');
+      b.className='tbtn';
+      b.id='tPause';
+      b.textContent='PAUSE';
+      root.appendChild(b);
+      const tap=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }togglePause();};
+      for(const ev of ['pointerdown','touchstart','mousedown','click'])b.addEventListener(ev,tap,{passive:false});
+    }
+    showPauseOverlay();
+  }
+
+  function removeGearButtons(){
+    qsa('#tGearUp,#tGearDn').forEach(el=>{try{el.remove();}catch(_){el.style.display='none';}});
+  }
+
+  function forceAutoGearOnly(){
+    const at=$('optAT');
+    if(at){
+      at.checked=true;
+      at.disabled=true;
+      const lab=at.closest('label');
+      if(lab)lab.classList.add('autoGearOnlyHidden');
+    }
+    try{if(typeof storageSet==='function')storageSet('raceAT','1');}catch(_){ }
+    removeGearButtons();
+  }
+
+  function enforceAssistDefaultOff(){
+    const a=$('optAssist');
+    if(!a)return;
+    try{
+      if(localStorage.getItem(ASSIST_TOUCHED_KEY)!=='1')a.checked=false;
+    }catch(_){a.checked=false;}
+    if(!a.dataset.assistDefaultBound){
+      a.dataset.assistDefaultBound='1';
+      a.addEventListener('change',()=>{try{localStorage.setItem(ASSIST_TOUCHED_KEY,'1');}catch(_){ }saveLockedMenuPrefs();},{passive:true});
+    }
+  }
+
+  function removeDrivingGuideMenu(){
+    const guideBox=document.querySelector('.guideBox');
+    if(guideBox){
+      const prev=guideBox.previousElementSibling;
+      if(prev&&prev.classList.contains('modeTitle')&&/DRIVING GUIDE/i.test(prev.textContent||''))prev.classList.add('hideFinalGuideTitle');
+      guideBox.style.display='none';
+    }
+    const g=$('optRacingGuide'),l=$('optGuideLabels');
+    if(g){g.checked=false;g.disabled=true;}
+    if(l){l.checked=false;l.disabled=true;}
+    try{localStorage.setItem('raceGuide','0');localStorage.setItem('raceGuideLabels','0');}catch(_){ }
+    const read=$('guideReadout');
+    if(read)read.style.display='none';
+    try{
+      const guide=window.__racingGuideAndBuilderPatch&&window.__racingGuideAndBuilderPatch.guide;
+      if(guide){guide.group.visible=false;if(guide.labels)guide.labels.visible=false;}
+      if(window.__racingGuideAndBuilderPatch){
+        window.__racingGuideAndBuilderPatch.guideEnabled=()=>false;
+        window.__racingGuideAndBuilderPatch.guideLabelsEnabled=()=>false;
+      }
+    }catch(_){ }
+  }
+
+  // Override guide visibility/updates after all earlier racing-line patches.
+  if(typeof updateGuideRuntimeColors==='function'&&!updateGuideRuntimeColors.__finalGuideOff){
+    const prev=updateGuideRuntimeColors;
+    updateGuideRuntimeColors=function(){removeDrivingGuideMenu();return;};
+    updateGuideRuntimeColors.__finalGuideOff=true;
+  }
+  if(typeof rebuildRacingGuide==='function'&&!rebuildRacingGuide.__finalGuideOff){
+    const prev=rebuildRacingGuide;
+    rebuildRacingGuide=function(){const r=prev.apply(this,arguments);removeDrivingGuideMenu();return r;};
+    rebuildRacingGuide.__finalGuideOff=true;
+  }
+
+  function readLockedPrefs(){try{return JSON.parse(localStorage.getItem(PATCH_PREF_KEY)||'{}')||{};}catch(_){return {};}}
+  function writeLockedPrefs(p){try{localStorage.setItem(PATCH_PREF_KEY,JSON.stringify(p));}catch(_){ }}
+  function keyForEl(el){
+    if(!el||el.type==='file')return null;
+    if(el.id==='bgmFile')return null;
+    if(el.name&&el.type==='radio')return 'radio:'+el.name;
+    if(el.id)return 'id:'+el.id;
+    return null;
+  }
+  function saveLockedMenuPrefs(){
+    const root=$('startOverlay')||document;
+    const p=readLockedPrefs();
+    qsa('input,select,textarea',root).forEach(el=>{
+      const key=keyForEl(el);if(!key)return;
+      if(el.type==='radio'){if(el.checked)p[key]=el.value;}
+      else if(el.type==='checkbox')p[key]=!!el.checked;
+      else p[key]=el.value;
+    });
+    const ai=$('optAICount');
+    if(ai)p['id:optAICount']=String(parseInt(ai.value,10)||0);
+    writeLockedPrefs(p);
+    try{
+      if(typeof storageSet==='function'){
+        const cls=document.querySelector('input[name="vehicleClass"]:checked');if(cls)storageSet('raceClass',cls.value);
+        const aiEl=$('optAICount');if(aiEl)storageSet('raceAI',String(parseInt(aiEl.value,10)||0));
+        const team=$('teamSelect');if(team&&cls)storageSet('raceTeam_'+cls.value,team.value);
+      }
+    }catch(_){ }
+    return p;
+  }
+  function cssEscape(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
+  function restoreLockedMenuPrefs(){
+    const p=readLockedPrefs();
+    const root=$('startOverlay')||document;
+    for(const [key,val] of Object.entries(p)){
+      try{
+        if(key.startsWith('radio:')){
+          const name=key.slice(6);
+          if(name==='trackChoice')continue;
+          const el=root.querySelector('input[name="'+cssEscape(name)+'"][value="'+cssEscape(String(val))+'"]');
+          if(el)el.checked=true;
+        }else if(key.startsWith('id:')){
+          const id=key.slice(3),el=$(id);
+          if(!el||el.type==='file')continue;
+          if(el.type==='checkbox')el.checked=!!val;
+          else if(el.tagName==='SELECT'){
+            if([...el.options].some(o=>o.value===String(val)))el.value=String(val);
+          }else el.value=String(val);
+        }
+      }catch(_){ }
+    }
+    // Exact AI-count preservation, especially 0.  Existing legacy code previously treated 0 as falsy.
+    const ai=$('optAICount');
+    if(ai&&Object.prototype.hasOwnProperty.call(p,'id:optAICount')){
+      const n=parseInt(p['id:optAICount'],10);
+      if(Number.isFinite(n))ai.value=String(safeClamp(n,parseInt(ai.min||'0',10)||0,parseInt(ai.max||'30',10)||30));
+    }
+    forceAutoGearOnly();
+    enforceAssistDefaultOff();
+    removeDrivingGuideMenu();
+    normalizeGithubOnlyBgmSelect(false);
+    try{if(typeof updateAICountLabel==='function')updateAICountLabel();if(typeof updateTeamPalette==='function')updateTeamPalette();if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);}catch(_){ }
+  }
+
+  function isSameFolderChoice(choice){
+    return !!(choice&&String(choice).startsWith(SAME_PREFIX)&&BGM&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]);
+  }
+  function firstSameFolderChoice(){
+    try{return Object.keys(BGM.sameFolderTracks||{})[0]||'';}catch(_){return '';}
+  }
+  function normalizeGithubOnlyBgmSelect(preferFirst=true){
+    const select=$('bgmTrack');
+    if(!select)return;
+    const current=select.value;
+    // Remove bundled, local, and soundtrack-placeholder entries. Keep only same-folder optgroups/options.
+    qsa('option',select).forEach(opt=>{
+      const keep=opt.dataset.sameFolder==='1'||String(opt.value||'').startsWith(SAME_PREFIX);
+      if(!keep)opt.remove();
+    });
+    qsa('optgroup',select).forEach(group=>{
+      if(group.dataset.sameFolder!=='1')group.remove();
+    });
+    let placeholder=select.querySelector('option[data-github-placeholder="1"]');
+    const first=firstSameFolderChoice();
+    if(first){
+      if(placeholder)placeholder.remove();
+      if(isSameFolderChoice(current))select.value=current;
+      else if(preferFirst)select.value=first;
+    }else{
+      if(!placeholder){
+        placeholder=document.createElement('option');
+        placeholder.value='';
+        placeholder.textContent='같은 GitHub 폴더에서 음원을 검색하세요';
+        placeholder.disabled=false;
+        placeholder.dataset.githubPlaceholder='1';
+        select.appendChild(placeholder);
+      }
+      select.value='';
+    }
+    const browse=$('bgmBrowse');if(browse)browse.style.display='none';
+    const file=$('bgmFile');if(file)file.disabled=true;
+    const note=document.querySelector('.musicBox .sameFolderNote');
+    if(note)note.innerHTML='BGM은 GitHub Pages의 <b>index.html과 같은 위치</b>에 올린 MP3/M4A/WAV/OGG 파일만 선택합니다. 파일을 추가한 뒤 <b>같은 폴더 검색</b>을 누르세요.';
+    try{if(typeof updateBgmOptionLabels==='function')updateBgmOptionLabels();}catch(_){ }
+  }
+
+  if(typeof fallbackToBuiltInBgm==='function'&&!fallbackToBuiltInBgm.__githubOnly){
+    fallbackToBuiltInBgm=function(note){
+      try{stopExternalBgm(false);}catch(_){ }
+      try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.08);}catch(_){ }
+      try{BGM.externalActive=false;BGM.fallbackNotified=false;}catch(_){ }
+      setBgmStatus(note||'GitHub 폴더 음원을 선택해야 BGM이 재생됩니다.','error');
+      try{updateBgmPreviewButton();}catch(_){ }
+    };
+    fallbackToBuiltInBgm.__githubOnly=true;
+  }
+  if(typeof startBackgroundMusic==='function'&&!startBackgroundMusic.__githubOnly){
+    const prevStartBgm=startBackgroundMusic;
+    startBackgroundMusic=function(opts={}){
+      normalizeGithubOnlyBgmSelect(false);
+      const choice=typeof bgmChoice==='function'?bgmChoice():'';
+      if(!bgmEnabled||!bgmEnabled())return prevStartBgm.apply(this,arguments);
+      if(!choice||!isSameFolderChoice(choice)){
+        try{if(opts.preview&&state==='menu')BGM.previewInMenu=true;}catch(_){ }
+        try{stopExternalBgm(false);}catch(_){ }
+        try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.08);}catch(_){ }
+        setBgmStatus('GitHub에 올린 같은 폴더 음원을 선택하세요. 내장 BGM은 사용하지 않습니다.','paused');
+        try{updateBgmPreviewButton();}catch(_){ }
+        return;
+      }
+      return prevStartBgm.apply(this,arguments);
+    };
+    startBackgroundMusic.__githubOnly=true;
+  }
+  if(typeof updateBackgroundMusic==='function'&&!updateBackgroundMusic.__githubOnly){
+    const prevUpdateBgm=updateBackgroundMusic;
+    updateBackgroundMusic=function(mul){
+      const r=prevUpdateBgm.apply(this,arguments);
+      const choice=typeof bgmChoice==='function'?bgmChoice():'';
+      // Never allow the old internal synth BGM as fallback. External same-folder audio only.
+      if(!isSameFolderChoice(choice)||!(BGM&&BGM.externalActive)){
+        try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.08);}catch(_){ }
+      }
+      return r;
+    };
+    updateBackgroundMusic.__githubOnly=true;
+  }
+  if(window.__refreshSameFolderMusic&&!window.__refreshSameFolderMusic.__githubOnlyWrapped){
+    const prevRefresh=window.__refreshSameFolderMusic;
+    window.__refreshSameFolderMusic=async function(manual=false){
+      const n=await prevRefresh.apply(this,arguments);
+      normalizeGithubOnlyBgmSelect(true);
+      if(n>0&&manual&&typeof startBackgroundMusic==='function')startBackgroundMusic({preview:state==='menu'});
+      return n;
+    };
+    window.__refreshSameFolderMusic.__githubOnlyWrapped=true;
+  }
+
+  // Remove any existing built-in choices immediately and after the async GitHub scan completes.
+  normalizeGithubOnlyBgmSelect(false);
+  setTimeout(()=>{normalizeGithubOnlyBgmSelect(true);if(window.__refreshSameFolderMusic)window.__refreshSameFolderMusic(false);},700);
+  setTimeout(()=>normalizeGithubOnlyBgmSelect(true),1700);
+
+  // Pause wrappers. The state remains race so HUD/camera stay visible; physics and timing are frozen.
+  if(typeof updateInputs==='function'&&!updateInputs.__finalPauseGate){
+    const prev=updateInputs;
+    updateInputs=function(dt){
+      forceAutoGearOnly();
+      if(window.__racePausedFinal&&state==='race')return;
+      return prev.apply(this,arguments);
+    };
+    updateInputs.__finalPauseGate=true;
+  }
+  function wrapNoopWhilePaused(name,holder=window){
+    try{
+      // Most game functions are lexical in this IIFE, so explicit cases below are used instead of holder[name].
+    }catch(_){ }
+  }
+  if(typeof physStep==='function'&&!physStep.__finalPauseGate){const prev=physStep;physStep=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};physStep.__finalPauseGate=true;}
+  if(typeof updateAI==='function'&&!updateAI.__finalPauseGate){const prev=updateAI;updateAI=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};updateAI.__finalPauseGate=true;}
+  if(typeof resolveVehicleCollisions==='function'&&!resolveVehicleCollisions.__finalPauseGate){const prev=resolveVehicleCollisions;resolveVehicleCollisions=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};resolveVehicleCollisions.__finalPauseGate=true;}
+  if(typeof aiCollideAndRender==='function'&&!aiCollideAndRender.__finalPauseGate){const prev=aiCollideAndRender;aiCollideAndRender=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};aiCollideAndRender.__finalPauseGate=true;}
+  if(typeof updatePitCrew==='function'&&!updatePitCrew.__finalPauseGate){const prev=updatePitCrew;updatePitCrew=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};updatePitCrew.__finalPauseGate=true;}
+  if(typeof updatePitGuidanceVisuals==='function'&&!updatePitGuidanceVisuals.__finalPauseGate){const prev=updatePitGuidanceVisuals;updatePitGuidanceVisuals=function(dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};updatePitGuidanceVisuals.__finalPauseGate=true;}
+  if(typeof updateTiming==='function'&&!updateTiming.__finalPauseGate){const prev=updateTiming;updateTiming=function(prevProg,prog,dt){if(window.__racePausedFinal&&state==='race')return;return prev.apply(this,arguments);};updateTiming.__finalPauseGate=true;}
+
+  // Closer chase camera.  Keeps high-speed camera tight instead of increasing FOV/distance heavily.
+  if(typeof updateCamera==='function'&&!updateCamera.__finalCloseChase){
+    const prevCam=updateCamera;
+    updateCamera=function(dt){
+      if(camMode!==0)return prevCam.apply(this,arguments);
+      const fx=Math.sin(car.theta),fz=Math.cos(car.theta);
+      const y=S[car.idx].p.y;
+      const amp=camShake*0.55+(car.onKerb&&Math.abs(car.vx)>6?0.035:0);
+      camShake*=Math.exp(-dt*5.2);
+      shake.t-=dt;
+      if(shake.t<=0){shake.t=0.125;shake.tx=(rnd()-0.5)*2*amp;shake.ty=(rnd()-0.5)*2*amp;}
+      const k=1-Math.exp(-dt*15);
+      shake.x+=(shake.tx-shake.x)*k;shake.y+=(shake.ty-shake.y)*k;
+      const speed=Math.max(0,Math.abs(car.vx||0));
+      const speedRel=safeClamp(speed/Math.max(55,P.topSpeed||80),0,1);
+      const back=safeLerp(6.75,8.25,speedRel);
+      const height=safeLerp(2.70,3.18,speedRel);
+      const lookAhead=safeLerp(5.4,8.0,speedRel);
+      const want=new THREE.Vector3(car.x-fx*back,y+height,car.z-fz*back);
+      camPos.lerp(want,1-Math.exp(-dt*7.2));
+      camPos.y=Math.max(camPos.y,y+1.15);
+      camera.position.set(camPos.x+shake.x*0.34,camPos.y+shake.y*0.26,camPos.z+shake.x*0.34);
+      camTgt.set(car.x+fx*lookAhead,y+1.00+speedRel*0.16,car.z+fz*lookAhead);
+      camera.lookAt(camTgt);
+      camera.fov=58+Math.min(8.0,speed*0.10)+(car.drs?1.6:0);
+      camera.updateProjectionMatrix();
+    };
+    updateCamera.__finalCloseChase=true;
+  }
+
+  // Start/menu wrappers.
+  if(typeof startRace==='function'&&!startRace.__finalUiCleanup){
+    const prev=startRace;
+    startRace=function(){
+      saveLockedMenuPrefs();
+      forceAutoGearOnly();
+      setRacePaused(false);
+      const r=prev.apply(this,arguments);
+      ensurePauseButton();
+      removeDrivingGuideMenu();
+      normalizeGithubOnlyBgmSelect(false);
+      setTimeout(()=>{ensurePauseButton();removeGearButtons();removeDrivingGuideMenu();},120);
+      return r;
+    };
+    startRace.__finalUiCleanup=true;
+  }
+  if(typeof goToStartMenu==='function'&&!goToStartMenu.__finalUiCleanup){
+    const prev=goToStartMenu;
+    goToStartMenu=function(){
+      saveLockedMenuPrefs();
+      setRacePaused(false);
+      const r=prev.apply(this,arguments);
+      restoreLockedMenuPrefs();
+      removeGearButtons();
+      removeDrivingGuideMenu();
+      normalizeGithubOnlyBgmSelect(false);
+      return r;
+    };
+    goToStartMenu.__finalUiCleanup=true;
+  }
+  if(typeof updateVehicleClassUI==='function'&&!updateVehicleClassUI.__finalPreservePrefs){
+    const prev=updateVehicleClassUI;
+    updateVehicleClassUI=function(){
+      const ai=$('optAICount');
+      const aiVal=ai?ai.value:null;
+      const r=prev.apply(this,arguments);
+      const p=readLockedPrefs();
+      if(ai&&Object.prototype.hasOwnProperty.call(p,'id:optAICount'))ai.value=String(parseInt(p['id:optAICount'],10)||0);
+      else if(ai&&aiVal!==null)ai.value=aiVal;
+      forceAutoGearOnly();enforceAssistDefaultOff();removeDrivingGuideMenu();normalizeGithubOnlyBgmSelect(false);
+      try{if(typeof updateAICountLabel==='function')updateAICountLabel();}catch(_){ }
+      return r;
+    };
+    updateVehicleClassUI.__finalPreservePrefs=true;
+  }
+  if(typeof updateTeamModeUI==='function'&&!updateTeamModeUI.__finalPreserveZero){
+    const prev=updateTeamModeUI;
+    updateTeamModeUI=function(){
+      const ai=$('optAICount');
+      const before=ai?String(ai.value):null;
+      const r=prev.apply(this,arguments);
+      if(ai&&before==='0'&&!getSelectedTeamMode())ai.value='0';
+      try{if(typeof updateAICountLabel==='function')updateAICountLabel();}catch(_){ }
+      return r;
+    };
+    updateTeamModeUI.__finalPreserveZero=true;
+  }
+
+  // Block manual auto-gear toggle by G after legacy keydown handler toggles it.
+  window.addEventListener('keydown',e=>{
+    const k=(e.key||'').toLowerCase();
+    if(k==='g')setTimeout(()=>{forceAutoGearOnly();if(typeof showMsg==='function')showMsg('AUTO GEAR ONLY','',520);},0);
+  },true);
+
+  const root=$('startOverlay');
+  if(root&&!root.dataset.finalPrefsBound){
+    root.dataset.finalPrefsBound='1';
+    for(const ev of ['change','input']){
+      root.addEventListener(ev,e=>{
+        if(e&&e.isTrusted===false)return;
+        const t=e.target;
+        if(!t||!('tagName' in t))return;
+        if(t.id==='optAssist'){try{localStorage.setItem(ASSIST_TOUCHED_KEY,'1');}catch(_){ }}
+        if(t.id==='optAT'){forceAutoGearOnly();return;}
+        saveLockedMenuPrefs();
+        setTimeout(()=>{restoreLockedMenuPrefs();forceAutoGearOnly();removeDrivingGuideMenu();normalizeGithubOnlyBgmSelect(false);},0);
+      },{capture:false,passive:true});
+    }
+  }
+
+  const ai=$('optAICount');
+  if(ai&&!ai.dataset.finalZeroPreserve){
+    ai.dataset.finalZeroPreserve='1';
+    ai.addEventListener('input',()=>{saveLockedMenuPrefs();try{if(typeof storageSet==='function')storageSet('raceAI',String(parseInt(ai.value,10)||0));}catch(_){ }},{passive:true});
+    ai.addEventListener('change',()=>{saveLockedMenuPrefs();try{if(typeof storageSet==='function')storageSet('raceAI',String(parseInt(ai.value,10)||0));}catch(_){ }},{passive:true});
+  }
+
+  forceAutoGearOnly();
+  enforceAssistDefaultOff();
+  removeDrivingGuideMenu();
+  restoreLockedMenuPrefs();
+  ensurePauseButton();
+  removeGearButtons();
+  for(const d of [80,250,700,1300,2500])setTimeout(()=>{forceAutoGearOnly();enforceAssistDefaultOff();removeDrivingGuideMenu();restoreLockedMenuPrefs();ensurePauseButton();removeGearButtons();normalizeGithubOnlyBgmSelect(false);},d);
+})();
+/* END USER REQUESTED UI / MENU / BGM / PAUSE / CAMERA CLEANUP PATCH */
+
+
+
+/* ============================================================
+   FINAL MOBILE MENU / BGM / PAUSE / CAMERA CLEANUP PATCH — 2026-06
+   Requested fixes:
+   - Driving assist default OFF and auto gear only.
+   - Start-menu settings remain stable unless the user changes them.
+   - AI count 0 is preserved; it never falls back to 5.
+   - Remove racing guide readout/markers options and hide guide line.
+   - BGM choices limited to audio files uploaded beside index.html on GitHub Pages.
+   - Add in-race pause button.
+   - Use a closer default chase camera.
+   ============================================================ */
+(function installFinalMobileMenuBgmPauseCameraPatch(){
+  if(window.__finalMobileMenuBgmPauseCameraPatch)return;
+  window.__finalMobileMenuBgmPauseCameraPatch=true;
+
+  const clampLocal=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerpLocal=(a,b,t)=>a+(b-a)*clampLocal(t,0,1);
+  const FINAL_PREF_KEY='f1FinalStableStartMenuPrefs_20260629_v5';
+  const FINAL_INIT_KEY='f1FinalStableDefaultsApplied_20260629_v5';
+  const SAME_PREFIX='samefolder:';
+  let finalGamePaused=false;
+
+  const css=document.createElement('style');
+  css.textContent=`
+    .guideBox,#guideReadout,#optRacingGuide,#optGuideLabels{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+    .guideBox + .modeHint{display:none!important;}
+    .autoOnlyOpt{opacity:.92;}
+    .autoOnlyOpt input{pointer-events:none;}
+    #tGearUp,#tGearDn{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;width:0!important;height:0!important;border:0!important;margin:0!important;padding:0!important;}
+    body.ios-native-app #tPause{right:calc(152px + env(safe-area-inset-right));top:calc(14px + env(safe-area-inset-top));width:74px;height:43px;font-size:10px;color:#ffd24a;border-color:rgba(255,210,74,.62);background:rgba(52,38,8,.76);}
+    body.ios-native-app #tPause.on{color:#07110b;background:#ffd24a;border-color:#ffd24a;box-shadow:0 0 16px rgba(255,210,74,.50),0 9px 24px rgba(0,0,0,.42);}
+    body.mobile-build:not(.ios-native-app) #tPause{right:calc(12px + env(safe-area-inset-right));top:calc(114px + env(safe-area-inset-top));border-color:rgba(255,210,74,.62)!important;color:#ffd24a!important;}
+    #pauseBadge{display:none;position:absolute;z-index:18;left:50%;top:calc(21% + env(safe-area-inset-top));transform:translateX(-50%);padding:13px 22px;border-radius:16px;border:1px solid rgba(255,210,74,.65);background:rgba(6,9,13,.78);color:#ffd24a;font-size:25px;font-weight:900;letter-spacing:3px;box-shadow:0 12px 40px rgba(0,0,0,.42);pointer-events:none;}
+    body.game-paused #pauseBadge{display:block;}
+    body.game-paused #tPause{filter:brightness(1.18);}
+    #bgmBrowse,#bgmFile,.musicFile{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+    .musicBox .licenseNote{display:none!important;}
+    .sameFolderOnlyNote{margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.38;}
+    body.ios-native-app #mobileHint{display:none!important;}
+    body.mobile-build #dash{transform:translateX(-50%) scale(.94);transform-origin:bottom center;}
+  `;
+  document.head.appendChild(css);
+
+  function storageGetSafe(k,def=''){
+    try{const v=localStorage.getItem(k);return v==null?def:v;}catch(_){return def;}
+  }
+  function storageSetSafe(k,v){try{localStorage.setItem(k,String(v));}catch(_){}}
+  function hasFinalPrefs(){try{return !!localStorage.getItem(FINAL_PREF_KEY);}catch(_){return false;}}
+  function readFinalPrefs(){try{return JSON.parse(localStorage.getItem(FINAL_PREF_KEY)||'{}')||{};}catch(_){return {};}}
+  function writeFinalPrefs(prefs){try{localStorage.setItem(FINAL_PREF_KEY,JSON.stringify(prefs));}catch(_){}}
+  function cssEscape(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
+  function finiteInt(v){const n=parseInt(v,10);return Number.isFinite(n)?n:NaN;}
+  function aiMaxForCurrent(){try{return Math.max(0,Number(selectedVehicleConfig&&selectedVehicleConfig().maxAI)||30);}catch(_){return 30;}}
+  function currentTeamMode(){try{return !!(document.getElementById('formatTeam')&&document.getElementById('formatTeam').checked);}catch(_){return false;}}
+  function normalizeAiExact(n){
+    if(typeof IS_FREE_ROAM!=='undefined'&&IS_FREE_ROAM)return 0;
+    const max=aiMaxForCurrent();
+    n=Number.isFinite(n)?n:finiteInt(storageGetSafe('raceAI','5'));
+    if(!Number.isFinite(n))n=5;
+    if(currentTeamMode()){
+      n=clampLocal(n,1,max);
+      if(n%2===0)n=n<max?n+1:n-1;
+      return Math.max(1,n);
+    }
+    return clampLocal(n,0,max);
+  }
+  function wantedAiFromPrefsOrInput(){
+    const p=readFinalPrefs();
+    let n=finiteInt(p['id:optAICount']);
+    if(!Number.isFinite(n))n=finiteInt(storageGetSafe('raceAI',''));
+    const el=document.getElementById('optAICount');
+    if(!Number.isFinite(n)&&el)n=finiteInt(el.value);
+    return normalizeAiExact(n);
+  }
+  function setAiExact(n,write=true){
+    const el=document.getElementById('optAICount');
+    const val=String(normalizeAiExact(n));
+    if(el)el.value=val;
+    const lab=document.getElementById('aiCountLabel');
+    if(lab)lab.textContent=val;
+    if(write){storageSetSafe('raceAI',val);try{if(typeof storageSet==='function')storageSet('raceAI',val);}catch(_){}}
+    return parseInt(val,10)||0;
+  }
+
+  function forceAutoOnly(){
+    const at=document.getElementById('optAT');
+    if(at){at.checked=true;at.disabled=true;at.setAttribute('aria-disabled','true');}
+    try{if(typeof optAT!=='undefined'&&optAT){optAT.checked=true;optAT.disabled=true;}}catch(_){ }
+    const gear=document.getElementById('gear');
+    if(gear)gear.title='Auto gear only';
+    for(const id of ['tGearUp','tGearDn']){const el=document.getElementById(id);if(el)el.remove();}
+  }
+
+  function disableRacingGuideCompletely(){
+    try{storageSetSafe('raceGuideLine','0');storageSetSafe('raceGuideLabels','0');if(typeof storageSet==='function'){storageSet('raceGuideLine','0');storageSet('raceGuideLabels','0');}}catch(_){ }
+    const g=document.getElementById('optRacingGuide');if(g)g.checked=false;
+    const l=document.getElementById('optGuideLabels');if(l)l.checked=false;
+    const readout=document.getElementById('guideReadout');if(readout)readout.remove();
+    document.querySelectorAll('.guideBox').forEach(box=>{
+      const prev=box.previousElementSibling;
+      if(prev&&/DRIVING GUIDE/i.test(prev.textContent||''))prev.remove();
+      box.remove();
+    });
+    const patch=window.__racingGuideAndBuilderPatch;
+    if(patch){
+      patch.guideEnabled=()=>false;
+      patch.guideLabelsEnabled=()=>false;
+      if(patch.guide){
+        if(patch.guide.group)patch.guide.group.visible=false;
+        if(patch.guide.labels)patch.guide.labels.visible=false;
+      }
+    }
+  }
+
+  function collectFinalPrefs(){
+    const root=document.getElementById('startOverlay')||document;
+    const prefs=readFinalPrefs();
+    root.querySelectorAll('input,select,textarea').forEach(el=>{
+      if(!el||el.type==='file')return;
+      if(el.id==='optRacingGuide'||el.id==='optGuideLabels'||el.id==='bgmFile')return;
+      if(el.name==='trackChoice')return; // track reload is controlled by the original raceTrack key.
+      if(el.type==='radio'){
+        if(el.checked&&el.name)prefs['radio:'+el.name]=el.value;
+      }else if(el.id){
+        if(el.id==='optAT')prefs['id:optAT']=true;
+        else prefs['id:'+el.id]=(el.type==='checkbox')?!!el.checked:String(el.value);
+      }
+    });
+    prefs['id:optAT']=true;
+    const ai=document.getElementById('optAICount');
+    if(ai)prefs['id:optAICount']=String(normalizeAiExact(finiteInt(ai.value)));
+    writeFinalPrefs(prefs);
+    if(ai)storageSetSafe('raceAI',prefs['id:optAICount']);
+    try{if(typeof storageSet==='function'&&ai)storageSet('raceAI',prefs['id:optAICount']);}catch(_){ }
+    return prefs;
+  }
+  window.__collectFinalStableMenuPrefs=collectFinalPrefs;
+
+  function applyFinalPrefs(){
+    const prefs=readFinalPrefs();
+    const root=document.getElementById('startOverlay')||document;
+    Object.entries(prefs).forEach(([key,val])=>{
+      try{
+        if(key.startsWith('radio:')){
+          const name=key.slice(6);
+          if(name==='trackChoice')return;
+          const el=root.querySelector('input[name="'+cssEscape(name)+'"][value="'+cssEscape(String(val))+'"]');
+          if(el)el.checked=true;
+        }else if(key.startsWith('id:')){
+          const id=key.slice(3);
+          if(id==='bgmFile'||id==='optRacingGuide'||id==='optGuideLabels')return;
+          const el=document.getElementById(id);
+          if(!el||el.type==='file')return;
+          if(id==='optAT'){el.checked=true;el.disabled=true;return;}
+          if(el.type==='checkbox')el.checked=!!val;
+          else if(el.tagName==='SELECT'){
+            if([...el.options].some(o=>o.value===String(val)))el.value=String(val);
+          }else el.value=String(val);
+        }
+      }catch(_){ }
+    });
+    forceAutoOnly();
+    disableRacingGuideCompletely();
+    setAiExact(wantedAiFromPrefsOrInput(),false);
+    try{if(typeof updateAICountLabel==='function')updateAICountLabel();}catch(_){ }
+    try{if(typeof updateTeamPalette==='function')updateTeamPalette();}catch(_){ }
+    try{if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);}catch(_){ }
+  }
+  window.__applyFinalStableMenuPrefs=applyFinalPrefs;
+
+  function installInitialDefaults(){
+    const prefs=readFinalPrefs();
+    if(!hasFinalPrefs()&&storageGetSafe(FINAL_INIT_KEY,'0')!=='1'){
+      const assist=document.getElementById('optAssist');if(assist)assist.checked=false;
+      const at=document.getElementById('optAT');if(at){at.checked=true;at.disabled=true;}
+      const ai=document.getElementById('optAICount');
+      const storedAi=finiteInt(storageGetSafe('raceAI',''));
+      if(ai&&Number.isFinite(storedAi))ai.value=String(normalizeAiExact(storedAi));
+      collectFinalPrefs();
+      storageSetSafe(FINAL_INIT_KEY,'1');
+    }else{
+      applyFinalPrefs();
+    }
+    // Assist default remains off unless the user has explicitly saved it in the new final prefs.
+    if(!hasFinalPrefs()){
+      const assist=document.getElementById('optAssist');if(assist)assist.checked=false;
+    }
+    forceAutoOnly();
+    disableRacingGuideCompletely();
+  }
+
+  /* Correct the original 0 -> DEFAULT_AI fallback. */
+  try{
+    const previousNormalizeAICountForFormat=normalizeAICountForFormat;
+    normalizeAICountForFormat=function(n){return normalizeAiExact(Number(n));};
+  }catch(_){ }
+  try{
+    getSelectedAICount=function(){return normalizeAiExact(finiteInt((document.getElementById('optAICount')||{}).value));};
+  }catch(_){ }
+  try{
+    updateAICountLabel=function(){
+      const n=getSelectedAICount();
+      const lab=document.getElementById('aiCountLabel');if(lab)lab.textContent=String(n);
+    };
+  }catch(_){ }
+  try{
+    const oldUpdateTeamModeUI=updateTeamModeUI;
+    updateTeamModeUI=function(){
+      const wanted=wantedAiFromPrefsOrInput();
+      try{oldUpdateTeamModeUI();}catch(_){ }
+      setAiExact(wanted,false);
+      forceAutoOnly();
+    };
+  }catch(_){ }
+  try{
+    const oldUpdateVehicleClassUI=updateVehicleClassUI;
+    updateVehicleClassUI=function(){
+      const wanted=wantedAiFromPrefsOrInput();
+      try{oldUpdateVehicleClassUI();}catch(_){ }
+      setAiExact(wanted,false);
+      forceAutoOnly();
+      disableRacingGuideCompletely();
+    };
+  }catch(_){ }
+  try{
+    const oldSaveMenuPreferences=saveMenuPreferences;
+    saveMenuPreferences=function(){
+      const prefs=collectFinalPrefs();
+      try{oldSaveMenuPreferences();}catch(_){ }
+      if(prefs['id:optAICount']!=null){storageSetSafe('raceAI',prefs['id:optAICount']);try{if(typeof storageSet==='function')storageSet('raceAI',prefs['id:optAICount']);}catch(_){ }}
+      forceAutoOnly();disableRacingGuideCompletely();
+    };
+  }catch(_){ }
+
+  const menuRoot=document.getElementById('startOverlay');
+  if(menuRoot){
+    const stableAfter=()=>setTimeout(()=>{collectFinalPrefs();applyFinalPrefs();},20);
+    for(const ev of ['input','change','click'])menuRoot.addEventListener(ev,e=>{
+      const t=e.target;
+      if(!t||!('tagName' in t)||t.type==='file')return;
+      stableAfter();
+    },{capture:false,passive:true});
+  }
+  window.addEventListener('beforeunload',()=>{collectFinalPrefs();},{capture:true});
+
+  /* BGM: same-folder GitHub audio only. */
+  function isSameFolderChoice(choice){return typeof choice==='string'&&choice.startsWith(SAME_PREFIX);}
+  function pruneBgmToSameFolderOnly(){
+    const select=document.getElementById('bgmTrack');
+    if(!select)return;
+    const current=select.value;
+    [...select.children].forEach(child=>{
+      if(child.tagName==='OPTGROUP'){
+        if(child.dataset.sameFolder!=='1')child.remove();
+      }else if(child.tagName==='OPTION'){
+        if(child.dataset.placeholder!=='1'&&child.dataset.sameFolder!=='1')child.remove();
+      }
+    });
+    let ph=select.querySelector('option[data-placeholder="1"]');
+    if(!ph){
+      ph=document.createElement('option');
+      ph.value='';
+      ph.dataset.placeholder='1';
+      ph.textContent='GitHub에 올린 같은 폴더 음원을 검색하세요';
+      select.insertBefore(ph,select.firstChild);
+    }
+    const same=[...select.options].filter(o=>o.dataset.sameFolder==='1'||isSameFolderChoice(o.value));
+    if(isSameFolderChoice(current)&&same.some(o=>o.value===current))select.value=current;
+    else if(same.length&&isSameFolderChoice(storageGetSafe('raceBgmChoice',''))&&same.some(o=>o.value===storageGetSafe('raceBgmChoice','')))select.value=storageGetSafe('raceBgmChoice','');
+    else select.value=same.length?same[0].value:'';
+    const browse=document.getElementById('bgmBrowse');if(browse)browse.remove();
+    const file=document.getElementById('bgmFile');if(file)file.remove();
+    const box=document.querySelector('.musicBox');
+    if(box&&!box.querySelector('.sameFolderOnlyNote')){
+      const note=document.createElement('div');
+      note.className='sameFolderOnlyNote';
+      note.innerHTML='BGM은 GitHub Pages에서 <b>index.html과 같은 위치</b>에 올린 오디오 파일만 선택합니다. 목록이 비어 있으면 <b>같은 폴더 검색</b>을 누르거나 music_manifest.json을 같이 올리세요.';
+      box.appendChild(note);
+    }
+  }
+  window.__pruneBgmToSameFolderOnly=pruneBgmToSameFolderOnly;
+
+  try{
+    const oldAddSameFolderTracks=window.__refreshSameFolderMusic;
+    if(oldAddSameFolderTracks){
+      const refresh=oldAddSameFolderTracks;
+      window.__refreshSameFolderMusic=async function(manual=false){
+        const n=await refresh(manual);
+        pruneBgmToSameFolderOnly();
+        return n;
+      };
+    }
+  }catch(_){ }
+  try{
+    const oldUpdateBgmOptionLabels=updateBgmOptionLabels;
+    updateBgmOptionLabels=function(){try{oldUpdateBgmOptionLabels();}catch(_){ }pruneBgmToSameFolderOnly();};
+  }catch(_){ }
+  try{
+    updateBgmPreviewButton=function(){
+      const b=document.getElementById('bgmPreview');if(!b)return;
+      const playing=backgroundMusicWanted()&&BGM.externalActive&&isSameFolderChoice(bgmChoice());
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
+      b.classList.toggle('playing',playing);
+    };
+  }catch(_){ }
+  try{
+    const oldFallback=fallbackToBuiltInBgm;
+    fallbackToBuiltInBgm=function(note){
+      try{stopExternalBgm(true);}catch(_){ }
+      if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.fallbackNotified=false;}
+      try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.08);}catch(_){ }
+      setBgmStatus(note||'선택한 GitHub 같은 폴더 음원을 재생할 수 없습니다. 파일명과 배포 상태를 확인하세요.','error');
+      updateBgmPreviewButton();
+    };
+  }catch(_){ }
+  try{
+    const oldStartBackgroundMusic=startBackgroundMusic;
+    startBackgroundMusic=function(opts={}){
+      pruneBgmToSameFolderOnly();
+      const choice=bgmChoice();
+      if(!bgmEnabled()){pauseBackgroundMusic('BGM이 꺼져 있습니다.');return;}
+      if(!isSameFolderChoice(choice)){
+        try{stopExternalBgm(true);}catch(_){ }
+        try{if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.08);}catch(_){ }
+        setBgmStatus('GitHub에 올린 같은 폴더 음원을 선택해야 BGM이 재생됩니다.','paused');
+        updateBgmPreviewButton();
+        return;
+      }
+      storageSetSafe('raceBgmChoice',choice);
+      return oldStartBackgroundMusic(opts);
+    };
+  }catch(_){ }
+  try{
+    updateBackgroundMusic=function(mul){
+      const a=bgmAudio&&bgmAudio();
+      const enabled=backgroundMusicWanted()&&isSameFolderChoice(bgmChoice());
+      if(a){a.muted=SND.muted||!enabled;a.volume=clampLocal(bgmVolume()*0.95,0,1);}
+      if(SND&&SND.bgmGain)setAudioParam(SND.bgmGain.gain,0,0.09);
+      updateBgmPreviewButton();
+    };
+  }catch(_){ }
+
+  /* In-race pause button and paused physics. */
+  function ensurePauseButton(){
+    const root=document.getElementById('touch');
+    if(root&&!document.getElementById('tPause')){
+      const b=document.createElement('div');
+      b.className='tbtn mobileAction';
+      b.id='tPause';
+      b.textContent='PAUSE';
+      root.appendChild(b);
+      const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }togglePause();};
+      for(const ev of ['pointerdown','touchstart','mousedown','click'])b.addEventListener(ev,run,{passive:false});
+    }
+    if(!document.getElementById('pauseBadge')){
+      const badge=document.createElement('div');badge.id='pauseBadge';badge.textContent='PAUSED';document.body.appendChild(badge);
+    }
+    forceAutoOnly();
+  }
+  function setPaused(on){
+    finalGamePaused=!!on&&state!=='menu'&&state!=='finished';
+    window.__finalGamePaused=finalGamePaused;
+    document.body.classList.toggle('game-paused',finalGamePaused);
+    const b=document.getElementById('tPause');
+    if(b){b.classList.toggle('on',finalGamePaused);b.textContent=finalGamePaused?'RESUME':'PAUSE';}
+    if(finalGamePaused){
+      try{keys['w']=keys['arrowup']=keys['s']=keys['arrowdown']=false;}catch(_){ }
+      try{touch.t=false;touch.b=false;if(typeof IOS_APP_INPUT!=='undefined'){IOS_APP_INPUT.throttle=false;IOS_APP_INPUT.brake=false;}}catch(_){ }
+      try{car.thr=0;car.brk=0;}catch(_){ }
+      showMsg('PAUSED','',500);
+    }
+  }
+  function togglePause(){setPaused(!finalGamePaused);}
+  window.__toggleRacePause=togglePause;
+  ensurePauseButton();
+
+  try{const oldPhysStep=physStep;physStep=function(dt){if(finalGamePaused)return;return oldPhysStep(dt);};}catch(_){ }
+  try{const oldUpdateAI=updateAI;updateAI=function(dt){if(finalGamePaused)return;return oldUpdateAI(dt);};}catch(_){ }
+  try{const oldResolveVehicleCollisions=resolveVehicleCollisions;resolveVehicleCollisions=function(dt){if(finalGamePaused)return;return oldResolveVehicleCollisions(dt);};}catch(_){ }
+  try{const oldAICollideAndRender=aiCollideAndRender;aiCollideAndRender=function(dt){if(finalGamePaused)return;return oldAICollideAndRender(dt);};}catch(_){ }
+  try{const oldUpdateInputs=updateInputs;updateInputs=function(dt){forceAutoOnly();if(finalGamePaused){try{car.thr=0;car.brk=0;}catch(_){ }return;}return oldUpdateInputs(dt);};}catch(_){ }
+  try{const oldUpdateEngineSound=updateEngineSound;updateEngineSound=function(){
+    if(finalGamePaused){
+      try{if(SND.eGain)setAudioParam(SND.eGain.gain,0,0.05);if(SND.sGain)setAudioParam(SND.sGain.gain,0,0.05);if(SND.ai)for(const v of SND.ai)setAudioParam(v.gain.gain,0,0.05);updateBackgroundMusic(SND.muted?0:1);}catch(_){ }
+      return;
+    }
+    return oldUpdateEngineSound();
+  };}catch(_){ }
+  try{const oldStartRace=startRace;startRace=function(){setPaused(false);forceAutoOnly();disableRacingGuideCompletely();return oldStartRace.apply(this,arguments);};}catch(_){ }
+  try{const oldGoToStartMenu=goToStartMenu;goToStartMenu=function(){setPaused(false);collectFinalPrefs();const r=oldGoToStartMenu.apply(this,arguments);setTimeout(()=>{applyFinalPrefs();pruneBgmToSameFolderOnly();},0);return r;};}catch(_){ }
+
+  // Keyboard defense: manual gear commands and G-toggle are neutralized after legacy handlers run.
+  window.addEventListener('keydown',e=>{
+    const k=(typeof keyId==='function')?keyId(e):String(e.key||'').toLowerCase();
+    if(k==='g'||k==='shift'||k==='control'){
+      setTimeout(()=>{forceAutoOnly();},0);
+    }
+  },true);
+
+  /* Closer default chase camera; high speed no longer pulls the camera far away. */
+  try{
+    const oldUpdateCamera=updateCamera;
+    updateCamera=function(dt){
+      if(camMode!==0)return oldUpdateCamera(dt);
+      const fx=Math.sin(car.theta),fz=Math.cos(car.theta);
+      const y=S[car.idx].p.y;
+      const speed=Math.abs(car.vx||0);
+      const cfg=vehicleConfig&&vehicleConfig();
+      const key=(cfg&&cfg.key)||currentVehicleClass;
+      const sizeMul=key==='nascar'?1.10:(key==='gt3'||key==='hypercar'||key==='bolide'||key==='p919evo'?1.04:(cfg&&cfg.isBike?0.86:1.0));
+      const back=(5.95+Math.min(1.05,speed*0.010))*sizeMul;
+      const height=(2.18+Math.min(0.55,speed*0.004))*sizeMul;
+      const want=new THREE.Vector3(car.x-fx*back,y+height,car.z-fz*back);
+      camPos.lerp(want,1-Math.exp(-dt*7.2));
+      camPos.y=Math.max(camPos.y,y+1.18);
+      const sx=(typeof shake!=='undefined'&&shake.x)||0,sy=(typeof shake!=='undefined'&&shake.y)||0;
+      camera.position.set(camPos.x+sx*0.35,camPos.y+sy*0.30,camPos.z+sx*0.35);
+      camTgt.set(car.x+fx*(5.6+Math.min(2.0,speed*.018)),y+0.98,car.z+fz*(5.6+Math.min(2.0,speed*.018)));
+      camera.lookAt(camTgt);
+      camera.fov=58+Math.min(11,speed*0.10)+(car.drs?1.5:0);
+      camera.updateProjectionMatrix();
+    };
+  }catch(_){ }
+
+  /* Apply final menu/BGM/guide state after all earlier stacked patches finish their own delayed restores. */
+  installInitialDefaults();
+  pruneBgmToSameFolderOnly();
+  for(const d of [0,80,260,700,1500,2600])setTimeout(()=>{applyFinalPrefs();pruneBgmToSameFolderOnly();ensurePauseButton();disableRacingGuideCompletely();forceAutoOnly();},d);
+  setInterval(()=>{ensurePauseButton();disableRacingGuideCompletely();forceAutoOnly();if(state==='menu')applyFinalPrefs();},1200);
+
+  // If same-folder music loader exists, refresh once more after this patch has pruned the select box.
+  setTimeout(()=>{try{if(window.__refreshSameFolderMusic)window.__refreshSameFolderMusic(false).then(()=>pruneBgmToSameFolderOnly());}catch(_){ }},900);
+})();
+/* END FINAL MOBILE MENU / BGM / PAUSE / CAMERA CLEANUP PATCH */
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
