@@ -11404,6 +11404,415 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   };
 })();
 
+
+/* ============================================================
+   PRECISION ZERO-BIAS GYRO STEERING PATCH — 2026-06
+   - Replaces stacked gyro steering with one final, calibrated mobile-control path.
+   - Uses gravity/tilt roll as the primary absolute steering signal and treats alpha/gyro-rate as fallback only.
+   - Adds auto zero-bias correction, center hysteresis, speed-dependent deadzone, and high-speed straight hold.
+   ============================================================ */
+(function installPrecisionZeroBiasGyroSteeringPatch(){
+  if(typeof MOBILE_PROFILE==='undefined'||!MOBILE_PROFILE)return;
+  const IOS=(window.IOS_APP_INPUT||((typeof IOS_APP_INPUT!=='undefined')?IOS_APP_INPUT:null));
+  if(!IOS||IOS.__precisionZeroBiasGyroPatch)return;
+  IOS.__precisionZeroBiasGyroPatch=true;
+
+  const c=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lp=(a,b,t)=>a+(b-a)*c(t,0,1);
+  const smooth01=x=>{x=c(x,0,1);return x*x*(3-2*x);};
+  const signedPow=(v,p)=>(v<0?-1:1)*Math.pow(Math.abs(v),p);
+  const now=()=>performance&&performance.now?performance.now():Date.now();
+  function normDegDelta(a,b){
+    if(!Number.isFinite(a)||!Number.isFinite(b))return 0;
+    let d=a-b;
+    while(d>180)d-=360;
+    while(d<-180)d+=360;
+    return d;
+  }
+  function copyOrient(s){
+    if(!s)return null;
+    return {
+      alpha:Number(s.alpha),
+      beta:Number(s.beta),
+      gamma:Number(s.gamma),
+      t:now()
+    };
+  }
+  function screenAngleSafe(){
+    try{
+      const so=screen&&screen.orientation;
+      if(so&&Number.isFinite(so.angle))return Number(so.angle);
+    }catch(_){ }
+    if(Number.isFinite(window.orientation))return Number(window.orientation);
+    return innerWidth>=innerHeight?90:0;
+  }
+  function angleFromBetaGamma(s){
+    if(!s)return null;
+    const beta=Number(s.beta),gamma=Number(s.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return null;
+    const strength=Math.hypot(beta,gamma);
+    if(strength<1e-3)return null;
+    return {angle:Math.atan2(gamma,beta)*180/Math.PI,strength};
+  }
+  function angleFromAccel(a){
+    if(!a)return null;
+    const x=Number(a.x)||0;
+    const y=Number(a.y)||0;
+    const strength=Math.hypot(x,y);
+    if(strength<1e-3)return null;
+    return {angle:Math.atan2(x,y)*180/Math.PI,strength};
+  }
+  function landscapeSign(){
+    const a=screenAngleSafe();
+    return (a===-90||a===270)?-1:1;
+  }
+
+  IOS.precisionOrient=copyOrient(IOS.orientationSample)||null;
+  IOS.precisionAccel=null;
+  IOS.precisionAccelCenter=null;
+  IOS.precisionOrientCenter=copyOrient(IOS.orientationCenter)||copyOrient(IOS.orientationSample)||null;
+  IOS.precisionPlaneCenter=angleFromBetaGamma(IOS.precisionOrientCenter);
+  IOS.precisionRate=0;
+  IOS.precisionRateBias=0;
+  IOS.precisionIntegrated=0;
+  IOS.precisionLastOrientT=0;
+  IOS.precisionLastAccelT=0;
+  IOS.precisionLastMotionT=0;
+  IOS.precisionRawPreBias=0;
+  IOS.precisionRaw=0;
+  IOS.precisionRawFiltered=0;
+  IOS.precisionAutoBias=0;
+  IOS.precisionSteer=0;
+  IOS.precisionSource='waiting';
+  IOS.precisionCenterQuality='waiting';
+  IOS.precisionFlatHold=0;
+  IOS.precisionDeadzoneBase=(()=>{try{return c(parseFloat(localStorage.getItem('f1GyroPrecisionDeadzone')||'0.030')||0.030,0.010,0.095);}catch(_){return 0.030;}})();
+  IOS.precisionAutoZero=(()=>{try{return localStorage.getItem('f1GyroPrecisionAutoZero')!=='0';}catch(_){return true;}})();
+
+  function setDiagText(msg,cls='good'){
+    const d=document.getElementById('gyroDiagStatus');
+    if(!d)return;
+    d.classList.remove('good','warn','bad');
+    if(cls)d.classList.add(cls);
+    d.textContent=msg;
+  }
+  function gyroCenterStatus(){
+    const bias=Number(IOS.precisionAutoBias||0).toFixed(3);
+    const raw=Number(IOS.precisionRaw||0).toFixed(3);
+    const src=IOS.precisionSource||'waiting';
+    return 'GYRO: '+src+' · RAW '+raw+' · ZERO '+bias+' · '+(IOS.precisionAutoZero?'AUTO-ZERO ON':'AUTO-ZERO OFF');
+  }
+  function updateMenuDiag(){
+    const audio=(typeof SND!=='undefined'&&SND&&SND.ctx)?SND.ctx.state:'not created';
+    const fresh=Math.max(IOS.precisionLastOrientT||0,IOS.precisionLastAccelT||0,IOS.precisionLastMotionT||0,IOS.lastWebT||0,IOS.lastMotionT||0,IOS.lastNativeT||0);
+    const age=fresh?Math.round(now()-fresh):99999;
+    const cls=!IOS.gyroEnabled?'warn':(age<1200?'good':'warn');
+    setDiagText('AUDIO: '+audio+' · '+gyroCenterStatus()+' · AGE '+(age<99999?age+' ms':'--'),cls);
+  }
+
+  function centerPrecisionGyro(reason='manual'){
+    const orient=copyOrient(IOS.precisionOrient)||copyOrient(IOS.orientationSample)||copyOrient(IOS.orientationCenter);
+    if(orient){
+      IOS.precisionOrientCenter=orient;
+      IOS.orientationCenter=copyOrient(orient);
+      IOS.precisionPlaneCenter=angleFromBetaGamma(orient);
+    }
+    const acc=IOS.precisionAccel;
+    if(acc){
+      IOS.precisionAccelCenter=angleFromAccel(acc);
+    }
+    IOS.precisionRateBias=Number.isFinite(IOS.precisionRate)?IOS.precisionRate:0;
+    IOS.precisionIntegrated=0;
+    IOS.precisionRawPreBias=0;
+    IOS.precisionRaw=0;
+    IOS.precisionRawFiltered=0;
+    IOS.precisionAutoBias=0;
+    IOS.precisionSteer=0;
+    IOS.precisionFlatHold=1;
+    IOS.smoothed=0;
+    IOS.webRaw=0;
+    IOS.motionRaw=0;
+    IOS.nativeRaw=0;
+    IOS.zero=0;
+    IOS.precisionCenterQuality=orient||acc?'calibrated':'waiting';
+    if(car)car.steer=0;
+    if(state!=='menu'&&typeof showMsg==='function')showMsg('GYRO LEVEL CENTERED','',650);
+    updateMenuDiag();
+    return true;
+  }
+  window.__centerIOSGyro=centerPrecisionGyro;
+  window.__centerIOSWheelGyro=centerPrecisionGyro;
+  window.__centerPrecisionGyro=centerPrecisionGyro;
+
+  // More reliable than compass/alpha alone: use absolute attitude when gravity gives a stable roll plane.
+  function precisionRawFromSensors(){
+    const t=now();
+    const sign=landscapeSign();
+    const candidates=[];
+
+    if(IOS.nativeSeen&&t-(IOS.lastNativeT||0)<650){
+      candidates.push({v:c(Number(IOS.nativeRaw)||0,-2.35,2.35),w:0.90,src:'native'});
+    }
+
+    const orient=IOS.precisionOrient||IOS.orientationSample;
+    const center=IOS.precisionOrientCenter||IOS.orientationCenter||orient;
+    if(orient&&center){
+      const po=angleFromBetaGamma(orient);
+      const pc=IOS.precisionPlaneCenter||angleFromBetaGamma(center);
+      if(po&&pc&&po.strength>7.0&&pc.strength>7.0){
+        // Previous patches established this sign: raw > 0 is visual clockwise wheel rotation.
+        candidates.push({v:c((-normDegDelta(po.angle,pc.angle)/27)*sign,-2.35,2.35),w:1.00,src:'tilt-roll'});
+      }
+      // Alpha is a poor neutral source on iPhone when the phone is near flat.  Use it only after a clear deliberate rotation.
+      const alphaDelta=-normDegDelta(Number(orient.alpha),Number(center.alpha))/34;
+      const flat=(po?po.strength:0)<6.0;
+      if(Number.isFinite(alphaDelta)&&Math.abs(alphaDelta)>0.145){
+        candidates.push({v:c(alphaDelta*sign,-2.10,2.10),w:flat?0.18:0.34,src:'alpha-fallback'});
+      }
+    }
+
+    const acc=IOS.precisionAccel;
+    const ac=IOS.precisionAccelCenter;
+    if(acc&&ac&&t-(IOS.precisionLastAccelT||0)<900){
+      const pa=angleFromAccel(acc);
+      if(pa&&ac&&pa.strength>1.0&&ac.strength>1.0){
+        candidates.push({v:c((-normDegDelta(pa.angle,ac.angle)/27)*sign,-2.20,2.20),w:0.86,src:'gravity-roll'});
+      }
+    }
+
+    // Gyro-rate integration is allowed only as a responsive fallback and is deliberately leaky to avoid one-sided drift.
+    if(t-(IOS.precisionLastMotionT||0)<700&&Math.abs(IOS.precisionIntegrated||0)>0.010){
+      candidates.push({v:c((IOS.precisionIntegrated||0)*sign,-1.85,1.85),w:0.42,src:'gyro-rate'});
+    }
+
+    if(!candidates.length){
+      IOS.precisionSource='center-hold';
+      return 0;
+    }
+    candidates.sort((a,b)=>b.w-a.w);
+    let raw=candidates[0].v;
+    let totalW=candidates[0].w;
+    // Blend only compatible estimates.  This avoids alpha/gyro drift overriding stable gravity roll.
+    for(let i=1;i<candidates.length;i++){
+      const cand=candidates[i];
+      if(Math.abs(cand.v-raw)<0.42){raw=(raw*totalW+cand.v*cand.w)/(totalW+cand.w);totalW+=cand.w;}
+    }
+    IOS.precisionSource=candidates[0].src;
+    if(IOS.gyroInvert)raw=-raw;
+    return c(raw,-2.35,2.35);
+  }
+  window.__iosRawGyroValue=()=>c(Number(IOS.precisionRaw)||0,-2.35,2.35);
+  window.__iosWheelRawGyroValue=window.__iosRawGyroValue;
+
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const s={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:now()};
+      if(!Number.isFinite(s.alpha)&&!Number.isFinite(s.beta)&&!Number.isFinite(s.gamma))return;
+      IOS.precisionOrient=s;
+      IOS.orientationSample=s;
+      if(!IOS.precisionOrientCenter){
+        IOS.precisionOrientCenter=copyOrient(s);
+        IOS.orientationCenter=copyOrient(s);
+        IOS.precisionPlaneCenter=angleFromBetaGamma(s);
+      }
+      IOS.precisionLastOrientT=s.t;
+      IOS.lastWebT=s.t;
+    }catch(_){ }
+  },true);
+
+  window.addEventListener('devicemotion',e=>{
+    try{
+      if(!IOS.gyroEnabled)return;
+      const t=now();
+      const dt=c((t-(IOS.precisionLastMotionT||t))/1000,0.004,0.055);
+      const ar=e.accelerationIncludingGravity;
+      if(ar){
+        IOS.precisionAccel={x:Number(ar.x)||0,y:Number(ar.y)||0,z:Number(ar.z)||0,t};
+        if(!IOS.precisionAccelCenter){IOS.precisionAccelCenter=angleFromAccel(IOS.precisionAccel);}
+        IOS.precisionLastAccelT=t;
+      }
+      const rr=e.rotationRate||{};
+      const zRate=Number(rr.alpha);
+      if(Number.isFinite(zRate)){
+        IOS.precisionRate=zRate;
+        // Bias-track the gyro when the phone is nearly still.  This mirrors gamepad gyro calibration: subtract steady angular-velocity bias.
+        if(Math.abs(zRate)<0.55){
+          IOS.precisionRateBias=lp(IOS.precisionRateBias||0,zRate,1-Math.exp(-dt*0.70));
+        }
+        const corrected=zRate-(IOS.precisionRateBias||0);
+        if(Math.abs(corrected)>0.035){
+          IOS.precisionIntegrated=c((IOS.precisionIntegrated||0)+(-corrected*dt)/25,-1.75,1.75);
+        }
+        IOS.precisionIntegrated*=Math.exp(-dt*0.62);
+        IOS.precisionLastMotionT=t;
+        IOS.lastMotionT=t;
+      }
+    }catch(_){ }
+  },true);
+
+  function addPrecisionGyroMenu(){
+    const gyroBox=document.getElementById('gyroMenuBox');
+    if(!gyroBox||document.getElementById('menuGyroPrecisionCenter'))return;
+    const style=document.createElement('style');
+    style.textContent=`
+      .gyroPrecisionBox{margin-top:9px;padding-top:8px;border-top:1px solid rgba(160,190,210,.16);}
+      .gyroPrecisionRow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
+      .gyroPrecisionRow button{font-size:10px;letter-spacing:.7px;padding:8px 10px;border-radius:7px;background:#132334;border:1px solid rgba(55,255,139,.42);color:#eafff4;box-shadow:none;}
+      .gyroPrecisionToggle{display:flex;align-items:center;gap:6px;color:#cfe0eb;font-size:10px;font-weight:900;letter-spacing:.35px;}
+      .gyroPrecisionToggle input{accent-color:#37ff8b;}
+      .gyroPrecisionSens{display:grid;grid-template-columns:68px 1fr 46px;gap:7px;align-items:center;margin-top:7px;color:#94a9b8;font-size:9px;font-weight:900;}
+      .gyroPrecisionSens input{width:100%;accent-color:#36e6ff;}
+      .gyroPrecisionNote{margin-top:5px;color:#7890a2;font-size:8.5px;line-height:1.35;}`;
+    document.head.appendChild(style);
+    const box=document.createElement('div');
+    box.className='gyroPrecisionBox';
+    box.innerHTML=`
+      <div class="gyroPrecisionRow">
+        <button type="button" id="menuGyroPrecisionCenter">수평/중앙 보정</button>
+        <label class="gyroPrecisionToggle"><input type="checkbox" id="menuGyroPrecisionAutoZero"> 자동 쏠림 보정</label>
+      </div>
+      <label class="gyroPrecisionSens"><span>중앙 데드존</span><input id="menuGyroPrecisionDeadzone" type="range" min="0.010" max="0.095" step="0.005" value="0.030"><span id="menuGyroPrecisionDeadzoneValue">0.030</span></label>
+      <div class="gyroPrecisionNote">폰을 실제 주행 자세로 잡은 상태에서 보정하세요. 수평/중앙 근처에서는 자동으로 조향 bias를 0으로 끌어 직진을 유지합니다.</div>`;
+    gyroBox.appendChild(box);
+    const centerBtn=document.getElementById('menuGyroPrecisionCenter');
+    const auto=document.getElementById('menuGyroPrecisionAutoZero');
+    const dead=document.getElementById('menuGyroPrecisionDeadzone');
+    const deadVal=document.getElementById('menuGyroPrecisionDeadzoneValue');
+    if(auto){auto.checked=!!IOS.precisionAutoZero;auto.addEventListener('change',()=>{IOS.precisionAutoZero=!!auto.checked;try{localStorage.setItem('f1GyroPrecisionAutoZero',IOS.precisionAutoZero?'1':'0');}catch(_){ }updateMenuDiag();});}
+    if(dead){
+      dead.value=(IOS.precisionDeadzoneBase||0.030).toFixed(3);
+      const sync=()=>{IOS.precisionDeadzoneBase=c(parseFloat(dead.value)||0.030,0.010,0.095);if(deadVal)deadVal.textContent=IOS.precisionDeadzoneBase.toFixed(3);try{localStorage.setItem('f1GyroPrecisionDeadzone',IOS.precisionDeadzoneBase.toFixed(3));}catch(_){ }};
+      dead.addEventListener('input',sync,{passive:true});sync();
+    }
+    if(centerBtn){
+      const run=e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }centerPrecisionGyro('button');};
+      for(const ev of ['pointerdown','touchstart','click'])centerBtn.addEventListener(ev,run,{capture:true,passive:false});
+    }
+  }
+  addPrecisionGyroMenu();
+
+  // Recenter after sensor warm-up.  A single START-time reading can be stale on iOS, which is a common source of one-sided steering.
+  const oldPrepare=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(e){
+    if(oldPrepare)await oldPrepare(e);
+    centerPrecisionGyro('start');
+    setTimeout(()=>centerPrecisionGyro('start-warmup-1'),260);
+    setTimeout(()=>centerPrecisionGyro('start-warmup-2'),760);
+    setTimeout(()=>centerPrecisionGyro('start-warmup-3'),1350);
+    return true;
+  };
+  const btn=document.getElementById('btnStart');
+  if(btn&&!btn.dataset.precisionGyroCenter){
+    btn.dataset.precisionGyroCenter='1';
+    const run=()=>{setTimeout(()=>centerPrecisionGyro('start-listener-1'),360);setTimeout(()=>centerPrecisionGyro('start-listener-2'),1000);};
+    for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,run,{capture:true,passive:true});
+  }
+
+  function applyPrecisionSteering(dt){
+    if(!IOS.gyroEnabled||!(state==='race'||state==='lights')||!car)return;
+    const t=now();
+    const fresh=Math.max(IOS.precisionLastOrientT||0,IOS.precisionLastAccelT||0,IOS.precisionLastMotionT||0,IOS.lastNativeT||0);
+    if(t-fresh>2200){
+      IOS.precisionRaw=0;
+      IOS.precisionSteer=0;
+      IOS.smoothed=0;
+      return;
+    }
+
+    const speed=Math.abs(Number(car.vx)||0);
+    const top=Math.max(42,Number(P&&P.topSpeed)||78);
+    const speedRel=c(speed/top,0,1);
+    const high=smooth01((speedRel-0.38)/0.55);
+    let preRaw=precisionRawFromSensors();
+    IOS.precisionRawPreBias=preRaw;
+
+    // Auto zero-bias: if the phone is near center and the car is almost straight, slowly learn residual one-sided offset.
+    if(IOS.precisionAutoZero){
+      const centeredCandidate=Math.abs(preRaw-(IOS.precisionAutoBias||0))<lp(0.135,0.235,1-high);
+      const lowTurn=Math.abs(IOS.smoothed||0)<lp(0.055,0.120,1-high)&&Math.abs(car.steer||0)<lp(0.060,0.130,1-high);
+      const lowYaw=Math.abs(car.r||0)<lp(0.42,0.25,high);
+      const lowRate=Math.abs(IOS.precisionRate-(IOS.precisionRateBias||0))<lp(2.0,0.70,high);
+      if(centeredCandidate&&lowTurn&&lowYaw&&lowRate){
+        const adaptRate=lp(0.38,1.25,high);
+        IOS.precisionAutoBias=lp(IOS.precisionAutoBias||0,preRaw,1-Math.exp(-dt*adaptRate));
+        IOS.precisionAutoBias=c(IOS.precisionAutoBias,-0.38,0.38);
+      }
+    }
+
+    let raw=c(preRaw-(IOS.precisionAutoBias||0),-2.25,2.25);
+    const rawRate=lp(9.5,3.6,high);
+    IOS.precisionRawFiltered+=c(raw-(IOS.precisionRawFiltered||0),-rawRate*dt,rawRate*dt);
+    const filterRate=lp(15.0,5.0,high);
+    IOS.precisionRawFiltered=lp(IOS.precisionRawFiltered,raw,1-Math.exp(-dt*filterRate));
+    raw=IOS.precisionRawFiltered;
+
+    const deadBase=c(Number(IOS.precisionDeadzoneBase)||0.030,0.010,0.095);
+    const dead=deadBase+lp(0.004,0.062,high);
+    const exit=dead*1.34;
+    const absRaw=Math.abs(raw);
+    let wheel=0;
+    if(absRaw>exit){
+      wheel=(absRaw-exit)/(1-exit);
+      wheel*=raw<0?-1:1;
+      wheel=c(wheel,-1,1);
+    }
+
+    // Near center should truly be straight.  Do not leave a residual steering value around zero.
+    const centerHold=wheel===0?1:smooth01((0.085-Math.abs(wheel))/0.085);
+    IOS.precisionFlatHold=lp(IOS.precisionFlatHold||0,centerHold,1-Math.exp(-dt*8.0));
+    if(wheel!==0){
+      const curve=lp(1.05,1.58,high);
+      wheel=signedPow(wheel,curve);
+    }
+
+    const speedDamp=lp(1.04,0.52,high);
+    const maxSteer=lp(1.00,0.52,high);
+    let target=c(-wheel*(IOS.sensitivity||2.40)*speedDamp,-maxSteer,maxSteer);
+    if(centerHold>0.65)target=0;
+
+    const response=target===0?lp(16.0,10.0,high):lp(10.8,3.35,high);
+    IOS.precisionSteer=lp(IOS.precisionSteer||0,target,1-Math.exp(-dt*response));
+    IOS.smoothed=IOS.precisionSteer;
+    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*2.15,4.7):4.7;
+    const steerRate=target===0?lp(steerRateBase*1.95,steerRateBase*1.15,high):lp(steerRateBase,Math.max(2.10,steerRateBase*0.44),high);
+    car.steer+=c(IOS.precisionSteer-car.steer,-steerRate*dt,steerRate*dt);
+
+    if(target===0||centerHold>0.80){
+      const snap=lp(0.014,0.036,high);
+      if(Math.abs(car.steer)<snap)car.steer=0;
+      if(Math.abs(IOS.smoothed)<snap)IOS.smoothed=0;
+      const straight=smooth01((speedRel-0.30)/0.45)*centerHold;
+      if(straight>0.08){
+        // Hold the car straight only when the phone is centered.  Deliberate steering is not damped.
+        if(Number.isFinite(car.r))car.r/=1+straight*2.05*dt;
+        if(Number.isFinite(car.vy))car.vy/=1+straight*1.35*dt;
+        car.steer*=Math.exp(-dt*lp(7.0,14.0,high));
+      }
+    }
+    IOS.precisionRaw=raw;
+    if(state==='menu')updateMenuDiag();
+  }
+
+  const prevUpdateInputs=updateInputs;
+  updateInputs=function(dt){
+    const apply=!!IOS.gyroEnabled&&(state==='race'||state==='lights');
+    if(apply){
+      const saved=IOS.gyroEnabled;
+      IOS.gyroEnabled=false;
+      try{prevUpdateInputs(dt);}finally{IOS.gyroEnabled=saved;}
+      applyPrecisionSteering(dt||0.016);
+    }else{
+      prevUpdateInputs(dt);
+    }
+  };
+
+  addEventListener('orientationchange',()=>setTimeout(()=>centerPrecisionGyro('orientationchange'),300),{passive:true});
+  setInterval(()=>{if(state==='menu')updateMenuDiag();},900);
+  updateMenuDiag();
+})();
+/* END PRECISION ZERO-BIAS GYRO STEERING PATCH */
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
