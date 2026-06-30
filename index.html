@@ -14932,688 +14932,61 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 /* END SIMPLE AUDIO + STABLE GYRO ZERO PATCH */
 
 
+
 /* ============================================================
-   FINAL REQUEST PATCH — 2026-06-30
-   - Smooth steering-wheel gyro for iPhone landscape-left play.
-   - No large center dead-zone or in-race auto-zero drift.
-   - Hard-stops all play-side audio when returning to the start screen.
-   - Rebuilds GitHub same-folder BGM detection/playback.
-   - Locks start-menu settings so a map reload cannot mutate unrelated options.
+   FINAL FREE-NAME GITHUB BGM + IPHONE THERMAL PATCH — 2026-06-30
+   - Arbitrary audio file names are discovered through GitHub repository tree scan.
+   - The scan is cached and never runs on MUTE/menu transitions.
+   - MUTE writes audio state once; muted frames do not touch WebAudio params repeatedly.
+   - iPhone render/update loop is throttled for thermal stability.
+   - Gyro menu is reduced to sensitivity + zero calibration only.
    ============================================================ */
-(function installFinalRequestPatch20260630(){
-  if(window.__finalRequestPatch20260630)return;
-  window.__finalRequestPatch20260630=true;
+(function installFinalFreeNameBgmThermalPatch20260630(){
+  if(window.__finalFreeNameBgmThermalPatch20260630)return;
+  window.__finalFreeNameBgmThermalPatch20260630=true;
 
-  const FINAL_BUILD='v2026.06.30-smooth-gyro-audio-menu-lock';
-  const SAME_PREFIX='samefolder:';
-  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
-  const PREF_KEY='f1FinalLockedStartPrefs_20260630_v1';
-  const GYRO_CENTER_KEY='f1FinalSmoothGyroCenter_20260630_v1';
-  const $=id=>document.getElementById(id);
-  const clampF=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
-  const lerpF=(a,b,t)=>a+(b-a)*clampF(t,0,1);
-  const nowF=()=>performance&&performance.now?performance.now():Date.now();
-  const IOS=window.IOS_APP_INPUT||((typeof IOS_APP_INPUT!=='undefined')?IOS_APP_INPUT:null);
+  const BUILD_FREE='v2026.06.30-free-bgm-thermal';
+  const SAME_PREFIX_FREE='samefolder:';
+  const AUDIO_RE_FREE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(?:[?#].*)?$/i;
+  const MENU_PREF_KEY_FREE='f1FinalMenuPrefs_freeBgmThermal_20260630_v1';
+  const GYRO_CENTER_KEY_FREE='f1FinalGyroCenter_freeBgmThermal_20260630_v1';
+  const BGM_CACHE_TTL_MS_FREE=2*60*60*1000;
+  const $free=id=>document.getElementById(id);
+  const nowFree=()=>performance&&performance.now?performance.now():Date.now();
+  const clampFree=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const lerpFree=(a,b,t)=>a+(b-a)*clampFree(t,0,1);
+  const IOS_FREE=window.IOS_APP_INPUT||((typeof IOS_APP_INPUT!=='undefined')?IOS_APP_INPUT:null);
+  const BGM_TRACKS_FREE=Object.create(null);
 
-  function setStatus(text,state='info'){
-    try{if(typeof setBgmStatus==='function')setBgmStatus(text,state);}
-    catch(_){const e=$('bgmFileName');if(e){e.textContent=text;e.dataset.state=state;}}
+  function setBgmStatusFree(text,stateName='info'){
+    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,stateName);return;}}catch(_){}
+    const e=$free('bgmFileName');
+    if(e){e.textContent=text;e.dataset.state=stateName;}
   }
-  function updateBuildBadge(){
-    try{
-      const card=document.querySelector('#startOverlay .card');
-      if(!card)return;
-      let v=$('currentVersionBadge');
-      if(!v){
-        v=document.createElement('div');
-        v.id='currentVersionBadge';
-        v.style.cssText='margin:2px 0 12px;color:#8fa5b6;font-size:10px;letter-spacing:1.4px;text-align:center;font-weight:800;';
-        const sub=card.querySelector('.sub');
-        if(sub&&sub.parentNode)sub.parentNode.insertBefore(v,sub.nextSibling);else card.prepend(v);
-      }
-      v.textContent='CURRENT BUILD · '+FINAL_BUILD;
-      window.__currentMobileBuildVersion=FINAL_BUILD;
-    }catch(_){ }
+  function safeDecodeFree(s){try{return decodeURIComponent(String(s||''));}catch(_){return String(s||'');}}
+  function encodePathFree(p){return String(p||'').split('/').filter(Boolean).map(s=>encodeURIComponent(safeDecodeFree(s))).join('/');}
+  function isAudioFree(p){return AUDIO_RE_FREE.test(String(p||''));}
+  function labelFree(p){
+    const raw=safeDecodeFree(String(p||'').split('/').pop()||'BGM');
+    return raw.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'BGM';
   }
-
-  /* ---------- Start-menu setting lock: track changes may reload, but unrelated settings are restored. ---------- */
-  function readPrefs(){try{return JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(_){return {};}}
-  function writePrefs(p){try{localStorage.setItem(PREF_KEY,JSON.stringify(p||{}));}catch(_){ }}
-  function escCss(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
-  function prefKey(el){
-    if(!el||el.type==='file'||el.id==='bgmFile')return null;
-    if(el.name&&el.type==='radio')return 'radio:'+el.name;
-    if(el.id)return 'id:'+el.id;
-    return null;
+  function rawGithubUrlFree(info,branch,filePath){
+    return 'https://raw.githubusercontent.com/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/'+encodeURIComponent(branch)+'/'+encodePathFree(filePath);
   }
-  function collectMenuPrefs(){
-    const root=$('startOverlay')||document;
-    const p=readPrefs();
-    for(const el of Array.from(root.querySelectorAll('input,select,textarea'))){
-      const k=prefKey(el);if(!k)continue;
-      if(el.type==='radio'){
-        if(el.checked)p[k]=el.value;
-      }else if(el.type==='checkbox')p[k]=!!el.checked;
-      else p[k]=el.value;
-    }
-    const ai=$('optAICount');if(ai)p['id:optAICount']=String(parseInt(ai.value,10)||0);
-    const cls=document.querySelector('input[name="vehicleClass"]:checked');
-    const team=$('teamSelect');
-    try{
-      if(typeof storageSet==='function'){
-        if(cls)storageSet('raceClass',cls.value);
-        if(ai)storageSet('raceAI',String(parseInt(ai.value,10)||0));
-        if(team&&cls)storageSet('raceTeam_'+cls.value,team.value);
-        const fmt=document.querySelector('input[name="raceFormat"]:checked');if(fmt)storageSet('raceFormat',fmt.value);
-        const dmg=document.querySelector('input[name="raceMode"]:checked');if(dmg)storageSet('raceMode',dmg.value);
-      }
-    }catch(_){ }
-    writePrefs(p);
-    return p;
-  }
-  function restoreMenuPrefs(){
-    const p=readPrefs();
-    const root=$('startOverlay')||document;
-    let classRestored=false;
-    try{
-      const cls=p['radio:vehicleClass'];
-      if(cls){const el=root.querySelector('input[name="vehicleClass"][value="'+escCss(cls)+'"]');if(el){el.checked=true;classRestored=true;}}
-      if(classRestored&&typeof updateVehicleClassUI==='function')updateVehicleClassUI();
-    }catch(_){ }
-    for(const [key,val] of Object.entries(p)){
-      try{
-        if(key.startsWith('radio:')){
-          const name=key.slice(6);
-          if(name==='trackChoice')continue;
-          const el=root.querySelector('input[name="'+escCss(name)+'"][value="'+escCss(String(val))+'"]');
-          if(el)el.checked=true;
-        }else if(key.startsWith('id:')){
-          const id=key.slice(3),el=$(id);
-          if(!el||el.type==='file')continue;
-          if(el.type==='checkbox')el.checked=!!val;
-          else if(el.tagName==='SELECT'){
-            if(Array.from(el.options).some(o=>o.value===String(val)))el.value=String(val);
-          }else el.value=String(val);
-        }
-      }catch(_){ }
-    }
-    try{
-      if(typeof updateAICountLabel==='function')updateAICountLabel();
-      if(typeof updateTeamPalette==='function')updateTeamPalette();
-      if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);
-    }catch(_){ }
-  }
-  function installMenuLock(){
-    const root=$('startOverlay');if(!root||root.dataset.finalMenuLock20260630==='1')return;
-    root.dataset.finalMenuLock20260630='1';
-    root.addEventListener('change',e=>{
-      const el=e.target;
-      if(el&&el.name==='trackChoice'){
-        collectMenuPrefs();
-        return;
-      }
-      collectMenuPrefs();
-    },{capture:true,passive:true});
-    root.addEventListener('input',e=>{
-      const el=e.target;if(el&&el.name==='trackChoice')return;
-      collectMenuPrefs();
-    },{capture:true,passive:true});
-    for(const el of Array.from(root.querySelectorAll('input[name="trackChoice"]'))){
-      for(const ev of ['pointerdown','touchstart','mousedown','click']){
-        el.addEventListener(ev,()=>collectMenuPrefs(),{capture:true,passive:true});
-      }
-    }
-  }
-
-  /* ---------- Audio: one owner for BGM, and hard silence on menu. ---------- */
-  function mediaMuted(){
-    return !!(window.__f1GlobalSoundMuted||window.__allGameSoundMuted||window.__wholeGameMuted||(typeof SND!=='undefined'&&SND.muted));
-  }
-  function safeSetGain(node,value,t=0.045){
-    try{if(node&&node.gain){if(typeof setAudioParam==='function')setAudioParam(node.gain,value,t);else node.gain.value=value;}}catch(_){ }
-  }
-  function silenceRaceAudio(note){
-    try{
-      if(typeof BGM!=='undefined'){
-        BGM.previewInMenu=false;
-        BGM.externalActive=false;
-        BGM.fallbackNotified=false;
-      }
-    }catch(_){ }
-    try{
-      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
-      if(a){a.pause();a.muted=true;}
-    }catch(_){ }
-    try{
-      if(typeof SND!=='undefined'){
-        for(const k of ['eGain','sGain','rGain','crowdGain','crowdRoarGain','crowdBodyGain','crowdCheerGain','bgmGain','bgmExternalGain','extFanGain'])safeSetGain(SND[k],0,0.035);
-        if(Array.isArray(SND.ai))for(const v of SND.ai)safeSetGain(v&&v.gain,0,0.035);
-        if(Array.isArray(SND.aiEngines))for(const v of SND.aiEngines)safeSetGain(v&&v.gain,0,0.035);
-      }
-    }catch(_){ }
-    if(note)setStatus(note,'paused');
-    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
-  }
-  function normalizeAudioPath(path){
-    path=String(path||'').trim().replace(/^\.\//,'');
-    if(!path||/^https?:\/\//i.test(path)||path.startsWith('data:')||path.startsWith('blob:'))return '';
-    const parts=path.split('/').filter(Boolean);
-    if(parts.length!==1)return ''; // Same folder only.
-    const one=parts[0];
-    if(!AUDIO_RE.test(one))return '';
-    return encodeURIComponent(decodeURIComponent(one)).replace(/%20/g,'%20');
-  }
-  function humanTrackName(name){
-    try{name=decodeURIComponent(String(name||''));}catch(_){name=String(name||'');}
-    return name.split('/').pop().replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
-  }
-  function uniqueTracks(list){
-    const seen=new Set(),out=[];
-    for(const item of list||[]){
-      const src=normalizeAudioPath(item&&item.src?item.src:item);
-      if(!src)continue;
-      const key=src.toLowerCase();
-      if(seen.has(key))continue;
-      seen.add(key);out.push({src,name:(item&&item.name)||humanTrackName(src)});
-    }
-    return out;
-  }
-  async function fetchJson(url){try{const r=await fetch(url,{cache:'no-store',headers:{'Accept':'application/json'}});if(!r.ok)return null;return await r.json();}catch(_){return null;}}
-  function parseManifest(data){
-    if(!data)return [];
-    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:[])));
-    return uniqueTracks(arr.map(x=>typeof x==='string'?{src:x}:{src:x.src||x.file||x.path||x.url||'',name:x.name||x.title||humanTrackName(x.src||x.file||x.path||x.url||'')}));
-  }
-  function inferGithubRepo(){
-    const host=String(location.hostname||'').toLowerCase();
-    if(!host.endsWith('.github.io'))return null;
-    const owner=host.replace(/\.github\.io$/,'');
-    const rawParts=location.pathname.split('/').filter(Boolean).map(x=>{try{return decodeURIComponent(x);}catch(_){return x;}});
-    let repo=owner+'.github.io',dirParts=rawParts.slice();
-    if(rawParts.length&&rawParts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(rawParts[0])){repo=rawParts[0];dirParts=rawParts.slice(1);}
-    if(dirParts.length&&/\.[a-z0-9]{2,8}$/i.test(dirParts[dirParts.length-1]))dirParts.pop();
-    return {owner,repo,dir:dirParts.join('/')};
-  }
-  async function githubBranches(info){
-    const out=[];
-    try{const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));if(repo&&repo.default_branch)out.push(repo.default_branch);}catch(_){ }
-    for(const b of ['gh-pages','main','master'])if(!out.includes(b))out.push(b);
-    return out;
-  }
-  function relFromGithubPath(path,dir){
-    let p=String(path||'').replace(/^\/+/, '');
-    const d=String(dir||'').replace(/^\/+|\/+$/g,'');
+  function pageRelFromRepoPathFree(filePath,siteDir){
+    let p=String(filePath||'').replace(/^\/+/,'');
+    const d=String(siteDir||'').replace(/^\/+|\/+$/g,'');
     if(d&&p.toLowerCase().startsWith(d.toLowerCase()+'/'))p=p.slice(d.length+1);
-    if(p.includes('/'))return '';
-    return normalizeAudioPath(p);
+    if(!d&&p.toLowerCase().startsWith('docs/'))p=p.slice(5);
+    if(!p||!isAudioFree(p))return '';
+    if(p.includes('..'))return '';
+    return encodePathFree(p);
   }
-  async function loadGithubFolderTracks(){
-    const info=inferGithubRepo();
-    if(!info)return {tracks:[],source:''};
-    const branches=await githubBranches(info);
-    const dir=String(info.dir||'').replace(/^\/+|\/+$/g,'');
-    for(const br of branches){
-      const path=dir?dir.split('/').map(encodeURIComponent).join('/'):'';
-      const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+path+'?ref='+encodeURIComponent(br);
-      const data=await fetchJson(url);
-      if(Array.isArray(data)){
-        const tracks=uniqueTracks(data.filter(x=>x&&x.type==='file'&&AUDIO_RE.test(x.name||'')).map(x=>({src:x.name,name:humanTrackName(x.name)})));
-        if(tracks.length)return {tracks,source:'GitHub '+br};
-      }
-    }
-    for(const br of branches){
-      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
-      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
-      const prefix=dir?dir+'/':'';
-      const tracks=uniqueTracks(arr.filter(x=>x&&x.type==='blob'&&AUDIO_RE.test(x.path||'')&&(!prefix||String(x.path).startsWith(prefix))&&String(x.path).slice(prefix.length).indexOf('/')<0).map(x=>({src:relFromGithubPath(x.path,dir),name:humanTrackName(x.path)})));
-      if(tracks.length)return {tracks,source:'GitHub tree '+br};
-    }
-    return {tracks:[],source:''};
-  }
-  async function loadSameFolderTracks(){
-    for(const m of ['music_manifest.json','music-list.json','bgm_manifest.json','audio_manifest.json','tracks.json']){
-      const tracks=parseManifest(await fetchJson(m));
-      if(tracks.length)return {tracks,source:m};
-    }
-    return await loadGithubFolderTracks();
-  }
-  function pruneBgmSelect(){
-    const sel=$('bgmTrack');if(!sel)return;
-    for(const child of Array.from(sel.children)){
-      if(child.tagName==='OPTGROUP'){
-        if(child.dataset.finalGithub!=='1'&&child.dataset.simpleGithub!=='1'&&child.dataset.sameFolder!=='1')child.remove();
-      }else if(child.tagName==='OPTION'){
-        const keep=child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX)||child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1';
-        if(!keep)child.remove();
-      }
-    }
-    if(!Array.from(sel.options).length){
-      const ph=document.createElement('option');ph.value='';ph.dataset.placeholder='1';ph.textContent='GitHub 같은 폴더 음악을 검색하세요';sel.appendChild(ph);
-    }
-  }
-  function addSameFolderTracks(tracks,source){
-    const sel=$('bgmTrack');if(!sel)return 0;
-    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
-    for(const g of Array.from(sel.querySelectorAll('optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]')))g.remove();
-    for(const o of Array.from(sel.querySelectorAll('option'))){if(!(o.dataset.placeholder==='1'||o.dataset.githubPlaceholder==='1'))o.remove();}
-    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
-    const clean=uniqueTracks(tracks);
-    if(!clean.length){pruneBgmSelect();return 0;}
-    const group=document.createElement('optgroup');group.label='GitHub 같은 폴더 · '+(source||'audio');group.dataset.finalGithub='1';group.dataset.sameFolder='1';
-    clean.forEach((t,i)=>{
-      const key=SAME_PREFIX+'final_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,42);
-      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'samefolder'};
-      const opt=document.createElement('option');opt.value=key;opt.textContent=t.name;opt.dataset.baseLabel=t.name;opt.dataset.sameFolder='1';group.appendChild(opt);
-    });
-    sel.appendChild(group);
-    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
-    if(remembered&&Array.from(sel.options).some(o=>o.value===remembered))sel.value=remembered;
-    else sel.value=group.children[0].value;
-    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }
-    pruneBgmSelect();
-    return clean.length;
-  }
-  async function refreshSameFolderMusicFinal(manual=false){
-    pruneBgmSelect();
-    if(manual)setStatus('GitHub 같은 폴더 음악을 검색 중입니다…','info');
-    const res=await loadSameFolderTracks();
-    const n=addSameFolderTracks(res.tracks,res.source);
-    if(n>0)setStatus('GitHub 같은 폴더 음악 '+n+'곡 사용 가능 · '+bgmChoiceLabelFinal(),'ready');
-    else setStatus('같은 폴더 음원을 찾지 못했습니다. index.html과 같은 위치에 mp3/m4a/wav/ogg 파일 또는 music_manifest.json을 올려 주세요.','error');
-    return n;
-  }
-  window.__refreshSameFolderMusic=refreshSameFolderMusicFinal;
-
-  function sameFolderSource(choice){
-    try{
-      if(!choice&&typeof bgmChoice==='function')choice=bgmChoice();
-      if(typeof BGM!=='undefined'&&choice&&String(choice).startsWith(SAME_PREFIX)&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
-        const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||bgmChoiceLabelFinal(choice),kind:'samefolder'};
-      }
-    }catch(_){ }
-    return null;
-  }
-  function firstSameChoice(){const sel=$('bgmTrack');return sel?((Array.from(sel.options).find(o=>String(o.value||'').startsWith(SAME_PREFIX))||{}).value||''):'';}
-  function bgmChoiceLabelFinal(choice){
-    const sel=$('bgmTrack');choice=choice||(sel&&sel.value)||'';
-    const opt=sel?Array.from(sel.options).find(o=>o.value===choice):null;
-    return opt?(opt.dataset.baseLabel||opt.textContent||'GitHub BGM').replace(/\s+✓$/,''):'GitHub BGM';
-  }
-  try{
-    bgmChoice=function(){const sel=$('bgmTrack');if(!sel)return '';let v=sel.value;if(!String(v||'').startsWith(SAME_PREFIX)){const f=firstSameChoice();if(f){sel.value=f;v=f;}}return v||'';};
-    bgmChoiceLabel=function(choice){return bgmChoiceLabelFinal(choice);};
-    resolveBgmSource=function(choice){return sameFolderSource(choice||bgmChoice());};
-  }catch(_){ }
-  function bgmWanted(preview=false){
-    try{return !!(typeof bgmEnabled==='function'?bgmEnabled():($('optBgm')&&$('optBgm').checked))&&!!sameFolderSource()&&!mediaMuted()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));}catch(_){return false;}
-  }
-  function ensureAudioRoute(){
-    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(!a)return null;
-    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
-    try{if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
-    try{a.playsInline=true;a.setAttribute('playsinline','');a.preload='auto';a.loop=true;}catch(_){ }
-    try{
-      if(typeof SND!=='undefined'&&SND.ctx&&!SND.finalBgmMediaSource){
-        SND.finalBgmMediaSource=SND.ctx.createMediaElementSource(a);
-        SND.finalBgmGain=SND.ctx.createGain();SND.finalBgmGain.gain.value=0;
-        SND.finalBgmMediaSource.connect(SND.finalBgmGain);SND.finalBgmGain.connect(SND.master);
-      }
-    }catch(_){ }
-    return a;
-  }
-  function playSameFolderBgm(reason='play',preview=false){
-    if(preview&&state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
-    const src=sameFolderSource();
-    const a=ensureAudioRoute();
-    if(!a||!src||!bgmWanted(preview)){
-      if(state==='menu'&&!preview){try{if(a)a.pause();}catch(_){ }}
-      if(!src)setStatus('GitHub 같은 폴더 음악을 먼저 검색/선택하세요.','paused');
-      return false;
-    }
-    try{
-      const href=new URL(src.src,document.baseURI).href;
-      if(a.dataset.finalSrc!==href){a.src=src.src;a.dataset.finalSrc=href;a.load();a.currentTime=0;}
-      a.muted=false;
-      a.volume=(typeof SND!=='undefined'&&SND.finalBgmGain)?1:clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95,0,1);
-      if(typeof SND!=='undefined'){
-        safeSetGain(SND.bgmGain,0,0.04);
-        if(SND.finalBgmGain)safeSetGain(SND.finalBgmGain,clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*1.12,0,1.2),0.08);
-      }
-      if(typeof BGM!=='undefined'){
-        BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='final|'+href;
-      }
-      const p=a.play();
-      setStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+src.name,'ready');
-      if(p&&typeof p.then==='function')p.then(()=>{try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }}).catch(()=>setStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
-      return true;
-    }catch(_){setStatus('선택한 GitHub 음원을 재생할 수 없습니다. 파일명과 배포 상태를 확인하세요.','error');return false;}
-  }
-  window.__playSelectedGithubBgm=playSameFolderBgm;
-  try{
-    startBackgroundMusic=function(opts={}){return playSameFolderBgm('startBackgroundMusic',!!(opts&&opts.preview));};
-    pauseBackgroundMusic=function(note){silenceRaceAudio(note||'시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');};
-    fallbackToBuiltInBgm=function(note){silenceRaceAudio(note||'GitHub 같은 폴더 음악만 사용합니다.');};
-    updateBackgroundMusic=function(mul){
-      const a=ensureAudioRoute();
-      const src=sameFolderSource();
-      const should=!!src&&bgmWanted(false);
-      try{if(typeof SND!=='undefined'){safeSetGain(SND.bgmGain,0,0.05);if(SND.finalBgmGain)safeSetGain(SND.finalBgmGain,should&&!a.paused?clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*1.12*(Number(mul)||1),0,1.2):0,0.08);}}catch(_){ }
-      if(a){
-        a.muted=!should;
-        a.volume=(typeof SND!=='undefined'&&SND.finalBgmGain)?1:clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95,0,1);
-        if(should&&a.paused){try{const p=a.play();if(p&&p.catch)p.catch(()=>{});}catch(_){ }}
-        if(!should&&state==='menu'){try{a.pause();}catch(_){ }}
-      }
-      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
-    };
-    updateBgmPreviewButton=function(){
-      const b=$('bgmPreview');if(!b)return;
-      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
-      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&sameFolderSource());
-      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
-      b.classList.toggle('playing',playing);
-    };
-  }catch(_){ }
-  function installMusicEvents(){
-    const sel=$('bgmTrack');
-    if(sel&&sel.dataset.finalMusicBound20260630!=='1'){
-      sel.dataset.finalMusicBound20260630='1';
-      sel.addEventListener('change',()=>{try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ } if(state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;setTimeout(()=>playSameFolderBgm('select-change',state==='menu'),20);},{capture:true,passive:true});
-    }
-    const prev=$('bgmPreview');
-    if(prev&&prev.dataset.finalPreviewBound20260630!=='1'){
-      prev.dataset.finalPreviewBound20260630='1';
-      prev.addEventListener('click',e=>{
-        try{e.preventDefault();e.stopPropagation();}catch(_){ }
-        const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
-        if(a&&a.src&&!a.paused){try{a.pause();if(typeof BGM!=='undefined')BGM.previewInMenu=false;updateBgmPreviewButton();}catch(_){ }return;}
-        if(typeof BGM!=='undefined')BGM.previewInMenu=true;
-        playSameFolderBgm('preview',true);
-      },{capture:true,passive:false});
-    }
-    const folder=$('bgmSameFolder');
-    if(folder&&folder.dataset.finalFolderBound20260630!=='1'){
-      folder.dataset.finalFolderBound20260630='1';
-      folder.addEventListener('click',e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }refreshSameFolderMusicFinal(true).then(n=>{if(n>0){if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playSameFolderBgm('manual-refresh',state==='menu');}});},{capture:true,passive:false});
-    }
-  }
-
-  /* ---------- Smooth iPhone gyro steering.  This supersedes all earlier gyro wrappers. ---------- */
-  const G={orient:null,accel:null,center:null,filtered:0,steer:0,lastSampleT:0,centerLocked:false};
-  function normDeg(a,b){let d=(Number(a)-Number(b)+540)%360-180;return Number.isFinite(d)?d:0;}
-  function screenSignFinal(){
-    const a=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
-    // iPhone default requested here is counter-clockwise 90 degrees.  This sign keeps the existing in-game left/right convention.
-    return (a===-90||a===270)?-1:1;
-  }
-  function rollFromOrient(s){
-    if(!s)return null;
-    const beta=Number(s.beta),gamma=Number(s.gamma);
-    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return null;
-    const strength=Math.hypot(beta,gamma);
-    if(strength<5.0)return null;
-    return {angle:Math.atan2(gamma,beta)*180/Math.PI,strength,source:'orientation',t:s.t||nowF()};
-  }
-  function rollFromAccel(a){
-    if(!a)return null;
-    const x=Number(a.x)||0,y=Number(a.y)||0;
-    const strength=Math.hypot(x,y);
-    if(strength<0.85)return null;
-    return {angle:Math.atan2(x,y)*180/Math.PI,strength:strength*8,source:'gravity',t:a.t||nowF()};
-  }
-  function currentRoll(){
-    const o=rollFromOrient(G.orient||(IOS&&IOS.orientationSample));
-    const a=rollFromAccel(G.accel||(IOS&&IOS.precisionAccel));
-    if(o&&a&&Math.abs(normDeg(o.angle,a.angle))<38)return {angle:o.angle*0.78+a.angle*0.22,strength:o.strength+a.strength*0.12,source:'orientation+gravity',t:Math.max(o.t,a.t)};
-    return o||a;
-  }
-  function saveCenter(angle,source){
-    if(!Number.isFinite(angle))return;
-    G.center={angle,t:nowF(),source:source||'manual'};G.centerLocked=true;
-    try{localStorage.setItem(GYRO_CENTER_KEY,JSON.stringify({angle,source:G.center.source,at:Date.now()}));}catch(_){ }
-    if(IOS){IOS.finalSmoothGyroCenter=angle;IOS.stableGyroCenterAngle=angle;IOS.smoothed=0;IOS.stableGyroSteer=0;}
-    G.filtered=0;G.steer=0;if(car)car.steer=0;
-    const st=$('gyroStableStatus');if(st)st.textContent='CENTER LOCKED · '+angle.toFixed(1)+'°';
-  }
-  function loadCenter(){try{const v=JSON.parse(localStorage.getItem(GYRO_CENTER_KEY)||'null');if(v&&Number.isFinite(v.angle)){G.center={angle:v.angle,t:nowF(),source:v.source||'stored'};G.centerLocked=true;if(IOS)IOS.finalSmoothGyroCenter=v.angle;}}catch(_){ }}
-  function lockCenterFromCurrent(source='current'){
-    const r=currentRoll();
-    if(r&&Number.isFinite(r.angle)){saveCenter(r.angle,source);return true;}
-    return false;
-  }
-  async function calibrateCenter(source='manual'){
-    try{if(window.__requestIOSGyroAccess)await window.__requestIOSGyroAccess(source);}catch(_){ }
-    const btn=$('menuGyroPrecisionCenter');
-    if(btn){btn.textContent='보정 중…';btn.classList.add('calibrating');}
-    const angles=[];const t0=nowF();
-    while(nowF()-t0<560){
-      const r=currentRoll();if(r&&Number.isFinite(r.angle))angles.push(r.angle);
-      await new Promise(res=>setTimeout(res,38));
-    }
-    if(btn){btn.textContent='조향 중앙 보정';btn.classList.remove('calibrating');}
-    if(!angles.length){try{showMsg('GYRO SENSOR NOT READY','warn',900);}catch(_){ }return false;}
-    let sx=0,sy=0;for(const a of angles){const rad=a*Math.PI/180;sx+=Math.cos(rad);sy+=Math.sin(rad);}
-    saveCenter(Math.atan2(sy,sx)*180/Math.PI,source+' avg '+angles.length);
-    try{showMsg('GYRO CENTER LOCKED','',700);}catch(_){ }
-    return true;
-  }
-  window.__calibrateStableGyro=calibrateCenter;
-  window.__centerIOSGyro=function(){lockCenterFromCurrent('runtime-center');};
-  window.__centerIOSWheelGyro=window.__centerIOSGyro;
-  function ensureGyroUi(){
-    const box=$('gyroMenuBox');if(!box)return;
-    let btn=$('menuGyroPrecisionCenter');
-    if(!btn){
-      btn=document.createElement('button');btn.type='button';btn.id='menuGyroPrecisionCenter';btn.textContent='조향 중앙 보정';
-      btn.style.cssText='margin-top:8px;width:100%;font-size:10px;letter-spacing:.8px;padding:8px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;';
-      box.appendChild(btn);
-    }
-    if(btn.dataset.finalGyroCenterBound20260630!=='1'){
-      btn.dataset.finalGyroCenterBound20260630='1';
-      for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }calibrateCenter('manual');},{capture:true,passive:false});
-    }
-    let st=$('gyroStableStatus');
-    if(!st){st=document.createElement('div');st.id='gyroStableStatus';st.className='gyroStableStatus';st.style.cssText='margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;';box.appendChild(st);}
-    st.textContent=G.center?'CENTER LOCKED · '+G.center.angle.toFixed(1)+'°':'START 시 현재 각도가 조향 중앙으로 고정됩니다.';
-    let note=$('gyroFinalNote20260630');
-    if(!note){note=document.createElement('div');note.id='gyroFinalNote20260630';note.style.cssText='margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;';note.textContent='중앙 데드존을 크게 두지 않고, 폰을 돌린 각도를 직접 핸들 각도로 변환합니다. 주행 중 자동 영점 보정은 꺼져 있어 영점이 흔들리지 않습니다.';box.appendChild(note);}
-  }
-  window.addEventListener('deviceorientation',e=>{
-    try{
-      G.orient={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:nowF()};
-      G.lastSampleT=G.orient.t;
-      if(IOS){IOS.orientationSample=G.orient;IOS.precisionOrient=G.orient;IOS.lastWebT=G.orient.t;}
-    }catch(_){ }
-  },true);
-  window.addEventListener('devicemotion',e=>{
-    try{
-      const a=e.accelerationIncludingGravity;
-      if(a){G.accel={x:Number(a.x)||0,y:Number(a.y)||0,z:Number(a.z)||0,t:nowF()};if(IOS){IOS.precisionAccel=G.accel;IOS.lastMotionT=G.accel.t;}}
-    }catch(_){ }
-  },true);
-  function finalGyroRaw(){
-    const r=currentRoll();
-    if(!r||!Number.isFinite(r.angle))return 0;
-    if(!G.center)saveCenter(r.angle,'auto-first');
-    let raw=(-normDeg(r.angle,G.center.angle)/42.0)*screenSignFinal();
-    if(IOS&&IOS.gyroInvert)raw=-raw;
-    return clampF(raw,-1.65,1.65);
-  }
-  window.__iosRawGyroValue=finalGyroRaw;
-  window.__iosWheelRawGyroValue=finalGyroRaw;
-  function applySmoothGyro(dt){
-    if(!IOS||!IOS.gyroEnabled||!(state==='race'||state==='lights')||!car)return;
-    dt=clampF(dt||0.016,0.004,0.050);
-    const r=currentRoll();
-    if(!r||nowF()-(r.t||0)>2200)return;
-    let raw=finalGyroRaw();
-    const speed=Math.abs(Number(car.vx)||0);
-    const top=Math.max(42,Number(P&&P.topSpeed)||78);
-    const speedRel=clampF(speed/top,0,1);
-    const rateLimit=lerpF(18.0,11.0,speedRel);
-    G.filtered+=clampF(raw-G.filtered,-rateLimit*dt,rateLimit*dt);
-    G.filtered=lerpF(G.filtered,raw,1-Math.exp(-dt*lerpF(20.0,13.5,speedRel)));
-    let wheel=G.filtered;
-    if(Math.abs(wheel)<0.004)wheel=0; // sensor-noise gate only, not a gameplay dead-zone.
-    const uiSens=clampF(parseFloat(($('menuGyroSens')&&$('menuGyroSens').value)||(IOS&&IOS.sensitivity)||2.40),0.70,6.00);
-    const effectiveSens=clampF(0.25+uiSens*0.315,0.50,1.55); // 2.40x ~= direct steering-wheel mapping.
-    const speedCap=lerpF(1.00,0.92,speedRel);
-    const target=clampF(-wheel*effectiveSens*speedCap,-1,1);
-    G.steer=lerpF(G.steer,target,1-Math.exp(-dt*lerpF(19.0,13.0,speedRel)));
-    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*3.0,5.8):5.8;
-    const steerRate=lerpF(steerRateBase,Math.max(5.0,steerRateBase*0.86),speedRel);
-    car.steer+=clampF(G.steer-car.steer,-steerRate*dt,steerRate*dt);
-    if(Math.abs(G.steer)<0.006&&Math.abs(car.steer)<0.012)car.steer=0;
-    if(IOS){IOS.smoothed=G.steer;IOS.stableGyroSteer=G.steer;IOS.precisionRaw=raw;IOS.precisionSource='final-smooth-wheel';}
-    try{const m=document.querySelector('#gyroMeter i');if(m)m.style.left=(50+clampF(G.steer,-1,1)*48)+'%';}catch(_){ }
-  }
-  if(typeof updateInputs==='function'&&!updateInputs.__finalSmoothGyro20260630){
-    const prev=updateInputs;
-    updateInputs=function(dt){
-      const use=!!(IOS&&IOS.gyroEnabled&&(state==='race'||state==='lights'));
-      if(use){
-        const saved=IOS.gyroEnabled;
-        IOS.gyroEnabled=false;
-        try{prev.apply(this,arguments);}finally{IOS.gyroEnabled=saved;}
-        applySmoothGyro(dt||0.016);
-      }else return prev.apply(this,arguments);
-    };
-    updateInputs.__finalSmoothGyro20260630=true;
-  }
-  const prevPrepare=window.__prepareIOSStartActivation;
-  window.__prepareIOSStartActivation=async function(e){
-    let r=true;
-    if(prevPrepare)r=await prevPrepare.apply(this,arguments);
-    if(IOS&&IOS.gyroEnabled){
-      if(!lockCenterFromCurrent('start-current')){
-        setTimeout(()=>lockCenterFromCurrent('start-delayed'),260);
-        setTimeout(()=>lockCenterFromCurrent('start-late'),760);
-      }
-    }
-    return r;
-  };
-
-  /* ---------- State wrappers. ---------- */
-  if(typeof goToStartMenu==='function'&&!goToStartMenu.__finalAudioMenu20260630){
-    const prev=goToStartMenu;
-    goToStartMenu=function(){
-      collectMenuPrefs();
-      const r=prev.apply(this,arguments);
-      restoreMenuPrefs();
-      silenceRaceAudio('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');
-      return r;
-    };
-    goToStartMenu.__finalAudioMenu20260630=true;
-  }
-  if(typeof startRace==='function'&&!startRace.__finalStartRace20260630){
-    const prev=startRace;
-    startRace=function(){
-      collectMenuPrefs();
-      if(IOS&&IOS.gyroEnabled&&!G.center)lockCenterFromCurrent('race-start');
-      const r=prev.apply(this,arguments);
-      try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){ }
-      setTimeout(()=>playSameFolderBgm('race-start',false),80);
-      setTimeout(()=>playSameFolderBgm('race-start-late',false),600);
-      return r;
-    };
-    startRace.__finalStartRace20260630=true;
-  }
-  if(typeof updateEngineSound==='function'&&!updateEngineSound.__finalMenuSilence20260630){
-    const prev=updateEngineSound;
-    updateEngineSound=function(){
-      if(state==='menu'){silenceRaceAudio();return;}
-      return prev.apply(this,arguments);
-    };
-    updateEngineSound.__finalMenuSilence20260630=true;
-  }
-
-  function boot(){
-    updateBuildBadge();installMenuLock();restoreMenuPrefs();ensureGyroUi();installMusicEvents();pruneBgmSelect();loadCenter();
-  }
-  boot();
-  for(const d of [120,520,1200,2400])setTimeout(boot,d);
-  setTimeout(()=>refreshSameFolderMusicFinal(false),700);
-  window.addEventListener('beforeunload',collectMenuPrefs,{capture:true});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='menu')silenceRaceAudio();},{passive:true});
-})();
-/* END FINAL REQUEST PATCH — 2026-06-30 */
-
-/* ============================================================
-   FINAL GYRO UI SIMPLIFICATION + ROBUST GITHUB BGM FINDER — 2026-06-30
-   Requested fixes:
-   - Gyro settings show only sensitivity and zero-center calibration.
-   - Remove visible center-deadzone / auto-zero / invert / stability / permission-test clutter.
-   - Search BGM in current GitHub Pages folder and common audio subfolders; support manifest as the most reliable path.
-   ============================================================ */
-(function installFinalGyroUiAndBgmFinder20260630(){
-  if(window.__finalGyroUiAndBgmFinder20260630)return;
-  window.__finalGyroUiAndBgmFinder20260630=true;
-  const $=id=>document.getElementById(id);
-  const qsa=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
-  const SAME_PREFIX='samefolder:';
-  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
-  const COMMON_AUDIO_DIRS=['','bgm','music','audio','assets/audio','assets/music','sounds','sound'];
-
-  function clampLocal(v,a,b){v=Number(v);return Number.isFinite(v)?Math.max(a,Math.min(b,v)):a;}
-  function setStatus(text,state='info'){
-    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,state);return;}}catch(_){ }
-    const el=$('bgmFileName');
-    if(el){el.textContent=text;el.dataset.state=state;}
-  }
-  function humanName(path){
-    let s=String(path||'');
-    try{s=decodeURIComponent(s);}catch(_){ }
-    return s.split('/').pop().replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
-  }
-  function safeRelativeAudioPath(path){
-    let s=String(path||'').trim().replace(/^\.\//,'').replace(/^\/+/, '');
-    if(!s||/^https?:\/\//i.test(s)||/^data:/i.test(s)||/^blob:/i.test(s)||s.includes('..'))return '';
-    const parts=s.split('/').filter(Boolean);
-    if(!parts.length||parts.length>4)return '';
-    if(!AUDIO_RE.test(parts[parts.length-1]))return '';
-    return parts.map(part=>encodeURIComponent(decodeURIComponent(part))).join('/');
-  }
-  function uniqueTracks(list){
-    const seen=new Set(),out=[];
-    for(const raw of list||[]){
-      const src=safeRelativeAudioPath(raw&&typeof raw==='object'?(raw.src||raw.file||raw.path||raw.url):raw);
-      if(!src)continue;
-      const key=src.toLowerCase();
-      if(seen.has(key))continue;
-      seen.add(key);
-      const name=raw&&typeof raw==='object'?(raw.name||raw.title||raw.label||humanName(src)):humanName(src);
-      out.push({src,name:String(name||humanName(src))});
-    }
-    return out;
-  }
-  async function fetchJson(url){
-    try{
-      const res=await fetch(url,{cache:'no-store',headers:{'Accept':'application/json, application/vnd.github+json'}});
-      if(!res.ok)return null;
-      return await res.json();
-    }catch(_){return null;}
-  }
-  function parseManifest(data){
-    if(!data)return [];
-    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:[])));
-    return uniqueTracks(arr);
-  }
-  async function loadManifestTracks(){
-    const manifests=[
-      'music_manifest.json','music-list.json','bgm_manifest.json','audio_manifest.json','tracks.json',
-      'bgm/music_manifest.json','music/music_manifest.json','audio/music_manifest.json','assets/audio/music_manifest.json'
-    ];
-    for(const m of manifests){
-      const tracks=parseManifest(await fetchJson(m));
-      if(tracks.length)return {tracks,source:m};
-    }
-    return {tracks:[],source:''};
-  }
-  function inferGithubRepo(){
+  function inferGithubPagesRepoFree(){
     const host=String(location.hostname||'').toLowerCase();
     if(!host.endsWith('.github.io'))return null;
     const owner=host.replace(/\.github\.io$/,'');
-    const parts=location.pathname.split('/').filter(Boolean).map(p=>{try{return decodeURIComponent(p);}catch(_){return p;}});
+    const parts=location.pathname.split('/').filter(Boolean).map(safeDecodeFree);
     let repo=owner+'.github.io';
     let dirParts=parts.slice();
     if(parts.length&&parts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(parts[0])){
@@ -15623,1233 +14996,846 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     if(dirParts.length&&/\.[a-z0-9]{2,8}$/i.test(dirParts[dirParts.length-1]))dirParts.pop();
     return {owner,repo,dir:dirParts.join('/')};
   }
-  async function githubBranches(info){
-    const branches=[];
+  async function fetchJsonFree(url,timeoutMs=5200){
+    let ctl=null,timer=null;
     try{
-      const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));
-      if(repo&&repo.default_branch)branches.push(repo.default_branch);
-    }catch(_){ }
-    for(const b of ['gh-pages','main','master'])if(!branches.includes(b))branches.push(b);
-    return branches;
-  }
-  function joinPath(a,b){
-    a=String(a||'').replace(/^\/+|\/+$/g,'');
-    b=String(b||'').replace(/^\/+|\/+$/g,'');
-    return [a,b].filter(Boolean).join('/');
-  }
-  function pathRelativeToBase(filePath,baseDir){
-    let p=String(filePath||'').replace(/^\/+/, '');
-    const base=String(baseDir||'').replace(/^\/+|\/+$/g,'');
-    if(base&&p.toLowerCase().startsWith(base.toLowerCase()+'/'))p=p.slice(base.length+1);
-    return safeRelativeAudioPath(p);
-  }
-  async function githubContentsFor(info,branch,path){
-    const enc=String(path||'').split('/').filter(Boolean).map(encodeURIComponent).join('/');
-    const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+enc+'?ref='+encodeURIComponent(branch);
-    const data=await fetchJson(url);
-    return Array.isArray(data)?data:[];
-  }
-  async function loadGithubTracks(){
-    const info=inferGithubRepo();
-    if(!info)return {tracks:[],source:''};
-    const branches=await githubBranches(info);
-    const base=String(info.dir||'').replace(/^\/+|\/+$/g,'');
-
-    for(const br of branches){
-      const tracks=[];
-      for(const sub of COMMON_AUDIO_DIRS){
-        const dir=joinPath(base,sub);
-        const items=await githubContentsFor(info,br,dir);
-        for(const item of items){
-          if(!item||item.type!=='file'||!AUDIO_RE.test(item.name||''))continue;
-          const rel=safeRelativeAudioPath(joinPath(sub,item.name));
-          if(rel)tracks.push({src:rel,name:humanName(item.name)});
-        }
+      if(typeof AbortController!=='undefined'){
+        ctl=new AbortController();
+        timer=setTimeout(()=>{try{ctl.abort();}catch(_){}},timeoutMs);
       }
-      const clean=uniqueTracks(tracks);
-      if(clean.length)return {tracks:clean,source:'GitHub '+br};
-    }
-
-    for(const br of branches){
-      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
-      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
-      const prefix=base?base+'/':'';
-      const tracks=[];
-      for(const item of arr){
-        if(!item||item.type!=='blob'||!AUDIO_RE.test(item.path||''))continue;
-        const p=String(item.path||'');
-        if(prefix&&!p.toLowerCase().startsWith(prefix.toLowerCase()))continue;
-        const rel=pathRelativeToBase(p,base);
-        if(!rel)continue;
-        const first=rel.split('/')[0]||'';
-        if(rel.includes('/')&&!COMMON_AUDIO_DIRS.includes(first))continue;
-        tracks.push({src:rel,name:humanName(rel)});
-      }
-      const clean=uniqueTracks(tracks);
-      if(clean.length)return {tracks:clean,source:'GitHub tree '+br};
-    }
-    return {tracks:[],source:''};
-  }
-  async function loadAudioTracks(){
-    const m=await loadManifestTracks();
-    if(m.tracks.length)return m;
-    return await loadGithubTracks();
-  }
-  function pruneMusicSelect(){
-    const sel=$('bgmTrack');if(!sel)return;
-    for(const child of Array.from(sel.children)){
-      if(child.tagName==='OPTGROUP'){
-        if(child.dataset.finalAudioFinder!=='1'&&child.dataset.sameFolder!=='1'&&child.dataset.finalGithub!=='1')child.remove();
-      }else if(child.tagName==='OPTION'){
-        const keep=child.dataset.finalAudioFinder==='1'||child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX)||child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1';
-        if(!keep)child.remove();
-      }
-    }
-    if(!sel.options.length){
-      const ph=document.createElement('option');
-      ph.value='';ph.dataset.placeholder='1';ph.textContent='GitHub 음악 검색 필요';
-      sel.appendChild(ph);
+      const r=await fetch(url,{cache:'no-store',headers:{'Accept':'application/vnd.github+json, application/json'},signal:ctl?ctl.signal:undefined});
+      if(timer)clearTimeout(timer);
+      if(!r.ok)return null;
+      return await r.json();
+    }catch(_){
+      if(timer)clearTimeout(timer);
+      return null;
     }
   }
-  function addTracksToSelect(tracks,source){
-    const sel=$('bgmTrack');if(!sel)return 0;
-    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
-    qsa('optgroup[data-final-audio-finder="1"],optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]',sel).forEach(g=>g.remove());
-    qsa('option',sel).forEach(o=>{if(o.dataset.placeholder!=='1'&&o.dataset.githubPlaceholder!=='1')o.remove();});
-    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
-    const clean=uniqueTracks(tracks);
-    if(!clean.length){pruneMusicSelect();return 0;}
-    qsa('option[data-placeholder="1"],option[data-github-placeholder="1"]',sel).forEach(o=>o.remove());
-    const group=document.createElement('optgroup');
-    group.label='GitHub BGM · '+(source||'audio');
-    group.dataset.finalAudioFinder='1';group.dataset.sameFolder='1';
-    clean.forEach((t,i)=>{
-      const key=SAME_PREFIX+'bgm_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,46);
-      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'samefolder'};
-      const opt=document.createElement('option');
-      opt.value=key;opt.textContent=t.name;opt.dataset.baseLabel=t.name;opt.dataset.sameFolder='1';opt.dataset.finalAudioFinder='1';opt.title=t.src;
-      group.appendChild(opt);
-    });
-    sel.appendChild(group);
-    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
-    const byPath=(()=>{try{return localStorage.getItem('f1BgmPath')||'';}catch(_){return '';}})();
-    const options=Array.from(sel.options);
-    if(remembered&&options.some(o=>o.value===remembered))sel.value=remembered;
-    else if(byPath){
-      const found=options.find(o=>{
-        const t=(typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[o.value]:null;
-        return t&&t.src===byPath;
-      });
-      sel.value=found?found.value:group.children[0].value;
-    }else sel.value=group.children[0].value;
-    const chosen=(typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[sel.value]:null;
-    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);if(chosen)localStorage.setItem('f1BgmPath',chosen.src);}catch(_){ }
-    pruneMusicSelect();
-    try{if(typeof updateBgmOptionLabels==='function')updateBgmOptionLabels();}catch(_){ }
-    return clean.length;
-  }
-  async function refreshMusic(manual=false){
-    const btn=$('bgmSameFolder')||$('bgmSameFolderRefresh');
-    if(btn){btn.classList.add('simpleBusy');btn.textContent='검색 중…';}
-    if(manual)setStatus('GitHub 음악 파일을 검색 중입니다…','info');
-    const result=await loadAudioTracks();
-    const n=addTracksToSelect(result.tracks,result.source);
-    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',manual&&n===0);btn.textContent=n?('음악 '+n+'곡 찾음'):'음악 검색';}
-    if(n>0){
-      const sel=$('bgmTrack');
-      const t=(typeof BGM!=='undefined'&&BGM.sameFolderTracks&&sel)?BGM.sameFolderTracks[sel.value]:null;
-      setStatus('GitHub 음악 '+n+'곡 사용 가능 · '+(t?t.name:'선택 가능'),'ready');
-    }else{
-      setStatus('음악을 찾지 못했습니다. 가장 확실한 방법은 music_manifest.json에 파일명을 적어 index.html과 함께 올리는 것입니다.','error');
-    }
-    return n;
-  }
-  window.__refreshSameFolderMusic=refreshMusic;
-
-  function sameFolderSource(choice){
-    choice=choice||(($('bgmTrack')&&$('bgmTrack').value)||'');
-    if(typeof BGM!=='undefined'&&choice&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
-      const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||humanName(t.src),kind:'samefolder'};
-    }
-    return null;
-  }
-  try{resolveBgmSource=function(choice){return sameFolderSource(choice);};}catch(_){ }
-  try{bgmChoice=function(){const sel=$('bgmTrack');return sel?String(sel.value||''):'';};}catch(_){ }
-  try{bgmChoiceLabel=function(choice){const src=sameFolderSource(choice);return src?src.name:(choice||'BGM');};}catch(_){ }
-
-  function bindMusicUi(){
-    const sel=$('bgmTrack');
-    if(sel&&sel.dataset.finalAudioFinderBound!=='1'){
-      sel.dataset.finalAudioFinderBound='1';
-      sel.addEventListener('change',()=>{
-        const src=sameFolderSource(sel.value);
-        try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);if(src)localStorage.setItem('f1BgmPath',src.src);}catch(_){ }
-        if(state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
-        try{if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:state==='menu'});}catch(_){ }
-      },{capture:true,passive:true});
-    }
-    for(const id of ['bgmSameFolder','bgmSameFolderRefresh']){
-      const btn=$(id);
-      if(btn&&btn.dataset.finalAudioFinderBound!=='1'){
-        btn.dataset.finalAudioFinderBound='1';
-        btn.addEventListener('click',e=>{
-          try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
-          refreshMusic(true).then(n=>{if(n>0&&state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:true});}catch(_){ }}});
-        },{capture:true,passive:false});
-      }
-    }
-    const box=document.querySelector('.musicBox');
-    if(box&&!box.querySelector('.finalBgmPathNote')){
-      const note=document.createElement('div');
-      note.className='finalBgmPathNote';
-      note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.38;';
-      note.innerHTML='권장 경로: <b>index.html과 같은 폴더</b> 또는 <b>bgm/</b>, <b>music/</b>, <b>audio/</b>. 가장 확실한 방식은 <b>music_manifest.json</b>에 파일 경로를 적는 것입니다.';
-      box.appendChild(note);
-    }
-  }
-
-  function simplifyGyroUi(){
-    const box=$('gyroMenuBox');if(!box)return;
-    const cssId='finalSimpleGyroUiCss20260630';
-    if(!$(cssId)){
-      const style=document.createElement('style');style.id=cssId;
-      style.textContent=`
-        #gyroMenuBox .gyroMenuTop,#gyroMenuBox .gyroDiagBox,#gyroMenuBox .gyroSmallToggle,#gyroMenuBox .gyroStabilityBox,#gyroMenuBox .gyroPrecisionBox{display:none!important;}
-        #gyroMenuBox label:has(#menuGyroPrecisionDeadzone),#gyroMenuBox label:has(#menuGyroPrecisionAutoZero),#gyroMenuBox label:has(#menuGyroInvert),#gyroMenuBox label:has(#menuGyroStability),#gyroMenuBox label:has(#menuGyroStabilityStrength){display:none!important;}
-        .gyroSimpleCenterBox{margin-top:9px;padding-top:8px;border-top:1px solid rgba(160,190,210,.16);}
-        .gyroSimpleCenterBox button{width:100%;font-size:10px;letter-spacing:.8px;padding:9px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;font-weight:900;box-shadow:none;}
-        .gyroSimpleCenterBox button:active{transform:translateY(1px);background:#20364b;}
-        .gyroSimpleStatus{margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;}
-        .gyroSimpleNote{margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;}
-      `;
-      document.head.appendChild(style);
-    }
-    qsa('.gyroPrecisionBox,.gyroStabilityBox,.gyroDiagBox,.gyroSmallToggle',box).forEach(el=>el.remove());
-    qsa('#gyroFinalNote20260630,.gyroStableNote',box).forEach(el=>el.remove());
-    const top=box.querySelector('.gyroMenuTop');if(top)top.style.display='none';
-    const enabled=$('menuGyroEnabled');if(enabled){enabled.checked=true;enabled.disabled=false;}
-    const sens=$('menuGyroSens');const sensVal=$('menuGyroSensValue');
-    if(sens){
-      sens.min='0.80';sens.max='6.00';sens.step='0.05';
-      if(!Number.isFinite(parseFloat(sens.value))||parseFloat(sens.value)<0.80)sens.value='2.40';
-      if(sensVal)sensVal.textContent=(parseFloat(sens.value)||2.40).toFixed(2)+'x';
-      if(!sens.dataset.finalSimpleGyroSens){
-        sens.dataset.finalSimpleGyroSens='1';
-        sens.addEventListener('input',()=>{const v=clampLocal(parseFloat(sens.value)||2.40,0.80,6.00);if(window.IOS_APP_INPUT)IOS_APP_INPUT.sensitivity=v;if(sensVal)sensVal.textContent=v.toFixed(2)+'x';try{localStorage.setItem('f1GyroSensitivityV2',v.toFixed(2));}catch(_){ }},{passive:true});
-      }
-    }
-    const note=box.querySelector('.gyroMenuNote');
-    if(note){
-      note.innerHTML='자이로 조향은 가로 플레이 기준으로 항상 사용합니다. 감도만 조절하고, 주행 자세가 달라졌을 때 아래 영점 조정을 누르세요.<div id="gyroPermissionHint" style="margin-top:5px;color:#36e6ff;font-weight:800;letter-spacing:.4px;">권한 상태: START 시 요청</div>';
-    }
-    let simple=box.querySelector('.gyroSimpleCenterBox');
-    if(!simple){
-      simple=document.createElement('div');simple.className='gyroSimpleCenterBox';
-      simple.innerHTML='<button type="button" id="menuGyroPrecisionCenter">영점 조정</button><div id="gyroStableStatus" class="gyroSimpleStatus">START 시 현재 자세가 영점으로 저장됩니다.</div><div class="gyroSimpleNote">폰을 편하게 잡은 상태에서 누르면 그 자세가 직진 기준이 됩니다.</div>';
-      box.appendChild(simple);
-    }else{
-      const btn=simple.querySelector('#menuGyroPrecisionCenter');if(btn)btn.textContent='영점 조정';
-    }
-    const btn=$('menuGyroPrecisionCenter');
-    if(btn&&btn.dataset.finalSimpleZeroBound!=='1'){
-      btn.dataset.finalSimpleZeroBound='1';
-      const run=e=>{
-        try{e.preventDefault();e.stopPropagation();}catch(_){ }
-        btn.textContent='영점 조정 중…';
-        const finish=ok=>{btn.textContent='영점 조정';const st=$('gyroStableStatus');if(st)st.textContent=ok?'영점 조정 완료':'센서 입력 대기 중 · START 후 다시 시도';};
-        try{
-          const f=window.__calibrateStableGyro||window.__centerPrecisionGyro||window.__centerIOSGyro;
-          const r=f?f('manual-zero'):null;
-          if(r&&typeof r.then==='function')r.then(x=>finish(x!==false)).catch(()=>finish(false));
-          else finish(r!==false);
-        }catch(_){finish(false);}
-      };
-      for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,run,{capture:true,passive:false});
-    }
-    try{if(window.IOS_APP_INPUT){IOS_APP_INPUT.gyroEnabled=true;if(Number.isFinite(parseFloat(sens&&sens.value)))IOS_APP_INPUT.sensitivity=parseFloat(sens.value);}}catch(_){ }
-  }
-
-  function boot(){simplifyGyroUi();bindMusicUi();pruneMusicSelect();}
-  boot();
-  for(const d of [80,260,700,1400,2600])setTimeout(boot,d);
-  for(const d of [650,1250,2600])setTimeout(()=>refreshMusic(false),d);
-})();
-/* END FINAL GYRO UI SIMPLIFICATION + ROBUST GITHUB BGM FINDER */
-
-
-
-/* ============================================================
-   FINAL GYRO SETTINGS CLEANUP + ROBUST GITHUB BGM PATH PATCH — 2026-06-30
-   - Gyro menu shows only sensitivity and zero calibration.
-   - Removes visible dead-zone / auto-zero controls left by older patches.
-   - BGM search supports music_manifest.json plus same folder and common folders: bgm/, music/, audio/.
-   ============================================================ */
-(function installFinalGyroMenuAndRobustBgmPathPatch20260630(){
-  if(window.__finalGyroMenuAndRobustBgmPathPatch20260630)return;
-  window.__finalGyroMenuAndRobustBgmPathPatch20260630=true;
-
-  const BUILD='v2026.06.30-gyro-simple-bgm-paths';
-  const SAME_PREFIX='samefolder:';
-  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
-  const MANIFESTS=['music_manifest.json','bgm_manifest.json','audio_manifest.json','tracks.json','music-list.json','bgm/music_manifest.json','bgm/tracks.json','music/music_manifest.json','audio/music_manifest.json'];
-  const AUDIO_DIRS=['','bgm','music','audio','sound','sounds','assets/music','assets/audio'];
-  const $=id=>document.getElementById(id);
-  const c=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
-
-  function setStatus(text,state='info'){
-    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,state);return;}}catch(_){ }
-    const e=$('bgmFileName');if(e){e.textContent=text;e.dataset.state=state;}
-  }
-  function updateBuildBadgeFinal(){
+  function cacheKeyFree(info){return 'f1FreeNameBgmTreeCache_v5:'+info.owner+'/'+info.repo+'/'+String(info.dir||'');}
+  function readBgmCacheFree(info){
     try{
-      const b=$('currentVersionBadge');
-      if(b)b.textContent='CURRENT BUILD · '+BUILD;
-      window.__currentMobileBuildVersion=BUILD;
-    }catch(_){ }
+      const raw=localStorage.getItem(cacheKeyFree(info));
+      if(!raw)return null;
+      const v=JSON.parse(raw);
+      if(!v||!Array.isArray(v.tracks)||Date.now()-(v.time||0)>BGM_CACHE_TTL_MS_FREE)return null;
+      return v;
+    }catch(_){return null;}
   }
-
-  /* ---------- Gyro menu: sensitivity + zero calibration only. ---------- */
-  function removeControl(id){
-    const el=$(id);if(!el)return;
-    const block=el.closest('label')||el.closest('.gyroPrecisionSens')||el.closest('.gyroPrecisionToggle')||el.parentElement;
-    try{(block||el).remove();}catch(_){ }
+  function writeBgmCacheFree(info,payload){
+    try{localStorage.setItem(cacheKeyFree(info),JSON.stringify({time:Date.now(),tracks:payload.tracks||[],source:payload.source||''}));}catch(_){}
   }
-  function forceGyroOn(){
-    try{if(typeof IOS_APP_INPUT!=='undefined')IOS_APP_INPUT.gyroEnabled=true;}catch(_){ }
-    try{if(window.IOS_APP_INPUT)window.IOS_APP_INPUT.gyroEnabled=true;}catch(_){ }
-    const e=$('menuGyroEnabled');
-    if(e)e.checked=true;
-    try{localStorage.setItem('f1GyroEnabled','1');}catch(_){ }
-    try{if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);}catch(_){ }
-  }
-  function cleanGyroMenu(){
-    forceGyroOn();
-    const box=$('gyroMenuBox');if(!box)return;
-
-    const top=box.querySelector('.gyroMenuTop');
-    if(top)top.style.display='none';
-    const state=$('gyroMenuState');
-    if(state){state.textContent='GYRO READY';state.classList.remove('off');}
-
-    removeControl('menuGyroPrecisionAutoZero');
-    removeControl('menuGyroPrecisionDeadzone');
-    removeControl('menuGyroPrecisionDeadzoneValue');
-
-    for(const el of Array.from(box.querySelectorAll('label,div,span'))){
-      const txt=(el.textContent||'').replace(/\s+/g,' ');
-      if(/중앙\s*데드존|데드존|자동\s*쏠림\s*보정|auto\s*zero/i.test(txt)){
-        if(el.id==='gyroPermissionHint'||el.id==='gyroStableStatus')continue;
-        const hasSens=!!el.querySelector('#menuGyroSens');
-        const hasCenter=!!el.querySelector('#menuGyroPrecisionCenter');
-        if(!hasSens&&!hasCenter){try{el.remove();}catch(_){ }}
-      }
-    }
-
-    const sens=$('menuGyroSens');
-    if(sens){
-      sens.disabled=false;
-      sens.min='0.80';sens.max='6.00';sens.step='0.05';
-      const v=c(parseFloat(sens.value)||2.40,0.80,6.00);
-      sens.value=v.toFixed(2);
-      const val=$('menuGyroSensValue');if(val)val.textContent=v.toFixed(2)+'x';
-    }
-
-    let center=$('menuGyroPrecisionCenter');
-    if(!center){
-      center=document.createElement('button');center.type='button';center.id='menuGyroPrecisionCenter';
-      center.style.cssText='margin-top:8px;width:100%;font-size:10px;letter-spacing:.8px;padding:8px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;';
-      box.appendChild(center);
-    }
-    center.textContent='영점 조정';
-    if(center.dataset.gyroZeroOnlyBound20260630!=='1'){
-      center.dataset.gyroZeroOnlyBound20260630='1';
-      for(const ev of ['pointerdown','touchstart','click'])center.addEventListener(ev,e=>{
-        try{e.preventDefault();e.stopPropagation();}catch(_){ }
-        forceGyroOn();
-        try{
-          if(typeof window.__calibrateStableGyro==='function')window.__calibrateStableGyro('manual-zero');
-          else if(typeof window.__centerIOSWheelGyro==='function')window.__centerIOSWheelGyro();
-          else if(typeof window.__centerIOSGyro==='function')window.__centerIOSGyro();
-        }catch(_){ }
-      },{capture:true,passive:false});
-    }
-
-    let st=$('gyroStableStatus');
-    if(!st){st=document.createElement('div');st.id='gyroStableStatus';st.style.cssText='margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;';box.appendChild(st);}
-    if(!/CENTER LOCKED|영점/.test(st.textContent||''))st.textContent='START 시 현재 각도가 영점으로 고정됩니다.';
-
-    let note=$('gyroFinalNote20260630')||$('gyroZeroOnlyNote20260630');
-    if(!note){note=document.createElement('div');note.id='gyroZeroOnlyNote20260630';note.style.cssText='margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;';box.appendChild(note);}
-    note.textContent='폰을 좌우로 돌린 각도를 실제 핸들 각도처럼 부드럽게 반영합니다. 주행 중 영점은 자동으로 움직이지 않습니다.';
-  }
-
-  /* ---------- Robust GitHub BGM loader. ---------- */
-  function safeDecode(x){try{return decodeURIComponent(String(x||''));}catch(_){return String(x||'');}}
-  function encodePart(x){try{return encodeURIComponent(decodeURIComponent(String(x||'')));}catch(_){return encodeURIComponent(String(x||''));}}
-  function safeRel(path){
-    path=String(path||'').trim().replace(/^\.\//,'').replace(/^\/+/, '');
-    if(!path||/^https?:\/\//i.test(path)||/^data:/i.test(path)||/^blob:/i.test(path)||path.includes('..'))return '';
-    const parts=path.split('/').filter(Boolean);
-    if(!parts.length||parts.length>3)return '';
-    const first=(parts[0]||'').toLowerCase();
-    if(parts.length>1&&!['bgm','music','audio','sound','sounds','assets'].includes(first))return '';
-    if(first==='assets'&&parts.length>2&&!['music','audio','sound','sounds'].includes((parts[1]||'').toLowerCase()))return '';
-    if(!AUDIO_RE.test(parts[parts.length-1]))return '';
-    return parts.map(encodePart).join('/');
-  }
-  function humanName(path){
-    const last=safeDecode(String(path||'').split('/').pop()||'');
-    return last.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
-  }
-  function uniqTracks(list){
-    const seen=new Set(),out=[];
-    for(const it of list||[]){
-      const raw=typeof it==='string'?it:(it&&typeof it==='object'?(it.src||it.file||it.path||it.url||''):'');
-      const src=safeRel(raw);if(!src)continue;
-      const key=src.toLowerCase();if(seen.has(key))continue;
-      seen.add(key);
-      out.push({src,name:(it&&typeof it==='object'&&(it.name||it.title||it.label))||humanName(src)});
-    }
-    return out;
-  }
-  async function fetchJson(path){
-    try{const r=await fetch(path,{cache:'no-store',headers:{'Accept':'application/json, application/vnd.github+json'}});if(!r.ok)return null;return await r.json();}catch(_){return null;}
-  }
-  function parseManifest(data){
-    if(!data)return [];
-    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:(Array.isArray(data.bgm)?data.bgm:[]))));
-    return uniqTracks(arr);
-  }
-  async function loadManifestTracks(){
-    for(const m of MANIFESTS){
-      const tracks=parseManifest(await fetchJson(m));
-      if(tracks.length)return {tracks,source:m};
-    }
-    return {tracks:[],source:''};
-  }
-  function inferGithub(){
-    const host=String(location.hostname||'').toLowerCase();
-    if(!host.endsWith('.github.io'))return null;
-    const owner=host.replace(/\.github\.io$/,'');
-    const parts=location.pathname.split('/').filter(Boolean).map(safeDecode);
-    let repo=owner+'.github.io',dir=[];
-    if(parts.length&&parts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(parts[0])){repo=parts[0];dir=parts.slice(1);}else dir=parts.slice();
-    if(dir.length&&/\.[a-z0-9]{2,8}$/i.test(dir[dir.length-1]))dir.pop();
-    return {owner,repo,dir:dir.join('/')};
-  }
-  async function githubBranches(info){
+  async function githubBranchesFree(info){
     const out=[];
-    try{const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));if(repo&&repo.default_branch)out.push(repo.default_branch);}catch(_){ }
-    for(const b of ['gh-pages','main','master'])if(!out.includes(b))out.push(b);
-    return out;
-  }
-  function apiPath(parts){return parts.filter(Boolean).join('/').split('/').filter(Boolean).map(encodeURIComponent).join('/');}
-  function siteRelFromRepoPath(repoPath,siteDir){
-    let p=String(repoPath||'').replace(/^\/+/, '');
-    const d=String(siteDir||'').replace(/^\/+|\/+$/g,'');
-    if(d&&p.toLowerCase().startsWith(d.toLowerCase()+'/'))p=p.slice(d.length+1);
-    else if(!d&&p.toLowerCase().startsWith('docs/'))p=p.slice(5);
-    return safeRel(p);
-  }
-  async function urlExists(rel){
-    if(!rel)return false;
-    try{
-      const r=await fetch(rel,{method:'HEAD',cache:'no-store'});
-      if(r.ok)return true;
-    }catch(_){ }
-    try{
-      const r=await fetch(rel,{method:'GET',cache:'no-store',headers:{'Range':'bytes=0-1'}});
-      return !!(r.ok||r.status===206);
-    }catch(_){return false;}
-  }
-  async function verifyTracks(tracks){
-    const out=[];
-    for(const t of uniqTracks(tracks)){
-      if(out.length>=80)break;
-      if(await urlExists(t.src))out.push(t);
-    }
-    return out;
-  }
-  async function loadGithubTracks(){
-    const info=inferGithub();if(!info)return {tracks:[],source:''};
-    const branches=await githubBranches(info);
-    const dir=String(info.dir||'').replace(/^\/+|\/+$/g,'');
-    const dirCandidates=[];
-    function addDir(d){d=String(d||'').replace(/^\/+|\/+$/g,'');if(!dirCandidates.includes(d))dirCandidates.push(d);}
-    for(const sub of AUDIO_DIRS)addDir([dir,sub].filter(Boolean).join('/'));
-    if(!dir){for(const sub of AUDIO_DIRS)addDir(['docs',sub].filter(Boolean).join('/'));}
-
-    for(const br of branches){
-      for(const d of dirCandidates){
-        const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+apiPath([d])+'?ref='+encodeURIComponent(br);
-        const data=await fetchJson(url);
-        if(!Array.isArray(data))continue;
-        const tracks=data.filter(x=>x&&x.type==='file'&&AUDIO_RE.test(x.name||'')).map(x=>({src:siteRelFromRepoPath((d?d+'/':'')+x.name,dir),name:humanName(x.name)}));
-        const verified=await verifyTracks(tracks);
-        if(verified.length)return {tracks:verified,source:'GitHub '+br+(d?(' / '+d):'')};
-      }
-    }
-
-    for(const br of branches){
-      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
-      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
-      if(!arr.length)continue;
-      const tracks=[];
-      for(const x of arr){
-        if(!x||x.type!=='blob'||!AUDIO_RE.test(x.path||''))continue;
-        const rel=siteRelFromRepoPath(x.path,dir);if(rel)tracks.push({src:rel,name:humanName(rel)});
-      }
-      const verified=await verifyTracks(tracks);
-      if(verified.length)return {tracks:verified,source:'GitHub tree '+br};
-    }
-    return {tracks:[],source:''};
-  }
-  async function loadBgmTracks(){
-    const manifest=await loadManifestTracks();
-    if(manifest.tracks.length){
-      const verified=await verifyTracks(manifest.tracks);
-      if(verified.length)return {tracks:verified,source:manifest.source};
-      return manifest;
-    }
-    return await loadGithubTracks();
-  }
-  function pruneSelectForGithub(){
-    const sel=$('bgmTrack');if(!sel)return;
-    for(const child of Array.from(sel.children)){
-      if(child.tagName==='OPTGROUP'){
-        if(child.dataset.finalRobustGithub!=='1'&&child.dataset.finalGithub!=='1'&&child.dataset.simpleGithub!=='1'&&child.dataset.sameFolder!=='1')child.remove();
-      }else if(child.tagName==='OPTION'){
-        const keep=child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1'||child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX);
-        if(!keep)child.remove();
-      }
-    }
-    if(!Array.from(sel.options).length){const ph=document.createElement('option');ph.value='';ph.dataset.placeholder='1';ph.textContent='BGM 검색을 눌러 GitHub 음악을 찾으세요';sel.appendChild(ph);}
-  }
-  function addTracks(tracks,source){
-    const sel=$('bgmTrack');if(!sel)return 0;
-    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
-    for(const g of Array.from(sel.querySelectorAll('optgroup[data-final-robust-github="1"],optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]')))g.remove();
-    for(const o of Array.from(sel.querySelectorAll('option'))){if(!(o.dataset.placeholder==='1'||o.dataset.githubPlaceholder==='1'))o.remove();}
-    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
-    const clean=uniqTracks(tracks);if(!clean.length){pruneSelectForGithub();return 0;}
-    const group=document.createElement('optgroup');group.label='GitHub BGM · '+(source||'audio');group.dataset.finalRobustGithub='1';group.dataset.finalGithub='1';group.dataset.sameFolder='1';
-    clean.forEach((t,i)=>{
-      const key=SAME_PREFIX+'robust_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,46);
-      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'github'};
-      const o=document.createElement('option');o.value=key;o.textContent=t.name;o.dataset.baseLabel=t.name;o.dataset.sameFolder='1';group.appendChild(o);
-    });
-    sel.appendChild(group);
-    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
-    if(remembered&&Array.from(sel.options).some(o=>o.value===remembered))sel.value=remembered;else sel.value=group.children[0].value;
-    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }
-    pruneSelectForGithub();
-    return clean.length;
-  }
-  function sourceForChoice(choice){
-    try{
-      choice=choice||(($('bgmTrack')&&$('bgmTrack').value)||'');
-      if(choice&&String(choice).startsWith(SAME_PREFIX)&&typeof BGM!=='undefined'&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
-        const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||labelForChoice(choice),kind:t.kind||'github'};
-      }
-    }catch(_){ }
-    return null;
-  }
-  function firstChoice(){const sel=$('bgmTrack');return sel?((Array.from(sel.options).find(o=>String(o.value||'').startsWith(SAME_PREFIX))||{}).value||''):'';}
-  function labelForChoice(choice){const sel=$('bgmTrack');choice=choice||(sel&&sel.value)||'';const o=sel?Array.from(sel.options).find(x=>x.value===choice):null;return o?(o.dataset.baseLabel||o.textContent||'GitHub BGM').replace(/\s+✓$/,''):'GitHub BGM';}
-  function mediaMuted(){return !!(window.__f1GlobalSoundMuted||window.__allGameSoundMuted||window.__wholeGameMuted||(typeof SND!=='undefined'&&SND.muted));}
-  function bgmIsEnabled(){try{return typeof bgmEnabled==='function'?bgmEnabled():!!($('optBgm')&&$('optBgm').checked);}catch(_){return !!($('optBgm')&&$('optBgm').checked);}}
-  function wantBgm(preview=false){return bgmIsEnabled()&&!mediaMuted()&&!!sourceForChoice()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));}
-  function setGain(node,value,t=0.06){try{if(node&&node.gain){if(typeof setAudioParam==='function')setAudioParam(node.gain,value,t);else node.gain.value=value;}}catch(_){ }}
-  function ensureAudioRoute(){
-    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(!a)return null;
-    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
-    try{if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
-    try{a.playsInline=true;a.setAttribute('playsinline','');a.setAttribute('webkit-playsinline','');a.preload='auto';a.loop=true;}catch(_){ }
-    try{
-      if(typeof SND!=='undefined'&&SND.ctx&&!SND.robustBgmMediaSource){
-        SND.robustBgmMediaSource=SND.ctx.createMediaElementSource(a);
-        SND.robustBgmGain=SND.ctx.createGain();SND.robustBgmGain.gain.value=0;
-        SND.robustBgmMediaSource.connect(SND.robustBgmGain);SND.robustBgmGain.connect(SND.master);
-      }
-    }catch(_){ }
-    return a;
-  }
-  function stopBgm(note){
-    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
-    try{if(a){a.pause();a.muted=true;}}catch(_){ }
-    try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.previewInMenu=false;BGM.fallbackNotified=false;}}catch(_){ }
-    try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.04);setGain(SND.finalBgmGain,0,0.04);setGain(SND.robustBgmGain,0,0.04);}}catch(_){ }
-    if(note)setStatus(note,'paused');
-    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
-  }
-  function playBgm(reason='play',preview=false){
-    if(preview&&state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
-    const sel=$('bgmTrack');
-    if(sel&&!String(sel.value||'').startsWith(SAME_PREFIX)){const f=firstChoice();if(f)sel.value=f;}
-    const src=sourceForChoice();const a=ensureAudioRoute();
-    if(!a||!src){setStatus('BGM 검색을 눌러 GitHub 음악을 먼저 찾으세요.','paused');return false;}
-    if(!wantBgm(preview)){if(state==='menu'&&!preview)stopBgm();return false;}
-    try{
-      const href=new URL(src.src,document.baseURI).href;
-      if(a.dataset.robustBgmSrc!==href){a.src=src.src;a.dataset.robustBgmSrc=href;a.load();try{a.currentTime=0;}catch(_){ }}
-      a.muted=false;
-      const vol=c((typeof bgmVolume==='function'?bgmVolume():0.84),0,1);
-      a.volume=(typeof SND!=='undefined'&&(SND.robustBgmGain||SND.finalBgmGain))?1:c(vol*0.95,0,1);
-      try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.04);setGain(SND.finalBgmGain,0,0.04);setGain(SND.robustBgmGain,vol*1.12,0.08);}}catch(_){ }
-      if(typeof BGM!=='undefined'){BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='robust|'+href;}
-      const p=a.play();
-      setStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+src.name,'ready');
-      if(p&&typeof p.then==='function')p.then(()=>{try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }}).catch(()=>setStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
-      return true;
-    }catch(_){setStatus('선택한 GitHub BGM을 재생할 수 없습니다. 파일명/경로와 Pages 배포 상태를 확인하세요.','error');return false;}
-  }
-  try{
-    bgmChoice=function(){const sel=$('bgmTrack');if(!sel)return '';let v=sel.value;if(!String(v||'').startsWith(SAME_PREFIX)){const f=firstChoice();if(f){sel.value=f;v=f;}}return v||'';};
-    bgmChoiceLabel=function(choice){return labelForChoice(choice);};
-    resolveBgmSource=function(choice){return sourceForChoice(choice||bgmChoice());};
-    startBackgroundMusic=function(opts={}){return playBgm('startBackgroundMusic',!!(opts&&opts.preview));};
-    pauseBackgroundMusic=function(note){stopBgm(note||'시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');};
-    fallbackToBuiltInBgm=function(note){stopBgm(note||'GitHub BGM 파일을 먼저 검색/선택하세요.');};
-    updateBackgroundMusic=function(mul){
-      const a=ensureAudioRoute();const should=wantBgm(false);
-      const vol=c((typeof bgmVolume==='function'?bgmVolume():0.84),0,1)*c(Number(mul)||1,0,1.4);
-      try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.05);setGain(SND.finalBgmGain,0,0.05);setGain(SND.robustBgmGain,should&&a&&!a.paused?c(vol*1.12,0,1.2):0,0.08);}}catch(_){ }
-      if(a){a.muted=!should;a.volume=(typeof SND!=='undefined'&&(SND.robustBgmGain||SND.finalBgmGain))?1:c(vol*0.95,0,1);if(should&&a.paused){try{const p=a.play();if(p&&p.catch)p.catch(()=>{});}catch(_){ }}if(!should&&state==='menu'){try{a.pause();}catch(_){ }}}
-      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
-    };
-    updateBgmPreviewButton=function(){
-      const b=$('bgmPreview');if(!b)return;
-      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
-      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&sourceForChoice());
-      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';b.classList.toggle('playing',playing);
-    };
-  }catch(_){ }
-
-  async function refreshBgm(manual=false){
-    pruneSelectForGithub();
-    const btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
-    if(btn){btn.textContent='검색 중…';btn.classList.add('simpleBusy');btn.classList.remove('simpleOk','simpleErr','ok','err');}
-    if(manual)setStatus('GitHub BGM을 검색 중입니다…','info');
-    const result=await loadBgmTracks();
-    const n=addTracks(result.tracks,result.source);
-    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',manual&&n===0);btn.classList.toggle('ok',n>0);btn.classList.toggle('err',manual&&n===0);btn.textContent=n?('BGM '+n+'곡'):'BGM 검색';}
-    if(n>0){setStatus('GitHub BGM '+n+'곡을 찾았습니다 · '+labelForChoice(),'ready');if(manual){try{if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playBgm('manual-refresh',state==='menu');}catch(_){ }}}
-    else if(manual)setStatus('BGM을 찾지 못했습니다. 가장 확실한 방법은 index.html 옆에 bgm/ 폴더와 music_manifest.json을 같이 올리는 것입니다.','error');
-    return n;
-  }
-  window.__refreshSameFolderMusic=refreshBgm;
-  window.__refreshRobustGithubBgm=refreshBgm;
-  window.__playSelectedGithubBgm=playBgm;
-
-  function installBgmUi(){
-    const title=Array.from(document.querySelectorAll('.modeTitle')).find(x=>/BGM/i.test(x.textContent||''));
-    if(title)title.textContent='GITHUB BGM';
-    const actions=document.querySelector('.musicActions');
-    if(actions){
-      let btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
-      if(!btn){btn=document.createElement('button');btn.type='button';actions.appendChild(btn);} 
-      btn.id='bgmSameFolderRefresh';btn.className='musicPreview musicFolder';btn.textContent='BGM 검색';
-      if(btn.dataset.robustBgmBound20260630!=='1'){
-        const clone=btn.cloneNode(true);clone.id='bgmSameFolderRefresh';clone.className='musicPreview musicFolder';clone.textContent='BGM 검색';clone.dataset.robustBgmBound20260630='1';
-        btn.replaceWith(clone);btn=clone;
-        btn.addEventListener('click',async e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }try{if(typeof initAudio==='function')initAudio();}catch(_){ }await refreshBgm(true);},{capture:true,passive:false});
-      }
-    }
-    const box=document.querySelector('.musicBox');
-    if(box){
-      for(const n of Array.from(box.querySelectorAll('.licenseNote'))){n.style.display='none';}
-      let note=box.querySelector('.robustBgmPathNote');
-      if(!note){note=document.createElement('div');note.className='robustBgmPathNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.38;';box.appendChild(note);}
-      note.innerHTML='권장 경로: <b>index.html</b> 옆에 <b>bgm/</b> 폴더를 만들고 음악 파일을 넣으세요. 가장 확실하게 하려면 <b>music_manifest.json</b>도 함께 올리세요.';
-    }
-    const sel=$('bgmTrack');
-    if(sel&&sel.dataset.robustBgmSelectBound20260630!=='1'){
-      sel.dataset.robustBgmSelectBound20260630='1';
-      sel.addEventListener('change',()=>{try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }try{if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playBgm('select-change',state==='menu');}catch(_){ }},{capture:true,passive:true});
-    }
-    const preview=$('bgmPreview');
-    if(preview&&preview.dataset.robustPreviewBound20260630!=='1'){
-      preview.dataset.robustPreviewBound20260630='1';
-      preview.addEventListener('click',e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(a&&a.src&&!a.paused){stopBgm('미리듣기 정지 · '+labelForChoice());return;}try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;playBgm('preview',true);}catch(_){ }},{capture:true,passive:false});
-    }
-  }
-
-  function boot(){updateBuildBadgeFinal();forceGyroOn();cleanGyroMenu();installBgmUi();pruneSelectForGithub();}
-  boot();
-  for(const d of [120,450,900,1600,2600])setTimeout(boot,d);
-  setTimeout(()=>refreshBgm(false),1050);
-  setTimeout(()=>refreshBgm(false),3200);
-
-  try{
-    if(typeof startRace==='function'&&!startRace.__robustBgmPaths20260630){
-      const prev=startRace;
-      startRace=function(){forceGyroOn();const r=prev.apply(this,arguments);try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){ }setTimeout(()=>playBgm('start-race',false),120);setTimeout(()=>playBgm('start-race-late',false),760);return r;};
-      startRace.__robustBgmPaths20260630=true;
-    }
-    if(typeof goToStartMenu==='function'&&!goToStartMenu.__robustMenuAudioStop20260630){
-      const prev=goToStartMenu;
-      goToStartMenu=function(){const r=prev.apply(this,arguments);stopBgm('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');return r;};
-      goToStartMenu.__robustMenuAudioStop20260630=true;
-    }
-  }catch(_){ }
-})();
-
-/* ============================================================
-   IPHONE THERMAL / FAST MUTE / NO-JSON BGM FINAL PATCH — 2026-06-30
-   - JSON is optional: fixed no-JSON paths are tried first.
-   - Manual BGM search uses GitHub API only when needed, not continuously.
-   - MUTE is a direct master-gain/HTMLAudio latch and skips per-frame audio work.
-   - Mobile thermal budget: lower DPR + throttled HUD/audio updates.
-   ============================================================ */
-(function installIPhoneThermalFastMuteNoJsonBgmPatch(){
-  if(window.__iphoneThermalFastMuteNoJsonBgmPatch20260630)return;
-  window.__iphoneThermalFastMuteNoJsonBgmPatch20260630=true;
-  const $=id=>document.getElementById(id);
-  const qsa=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
-  const SAME_PREFIX='samefolder:';
-  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac)(?:[?#].*)?$/i;
-  const BUILD='v2026.06.30-thermal-fastmute-nojson-bgm';
-  const clampLocal=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const nowMs=()=>performance&&performance.now?performance.now():Date.now();
-
-  /* ---------- Mobile thermal budget. ---------- */
-  function applyThermalRendererBudget(){
-    try{
-      if(typeof renderer==='undefined'||!renderer)return;
-      const dpr=Math.min((window.devicePixelRatio||1), (typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE)?0.85:1.5);
-      renderer.setPixelRatio(dpr);
-      renderer.shadowMap.enabled=false;
-      if(typeof sun!=='undefined'&&sun)sun.castShadow=false;
-      if(typeof scene!=='undefined'&&scene&&!scene.userData.__thermalShadowStripped){
-        scene.userData.__thermalShadowStripped=true;
-        scene.traverse(o=>{try{o.castShadow=false;o.receiveShadow=false;}catch(_){ }});
-      }
-    }catch(_){ }
-  }
-  applyThermalRendererBudget();
-  setTimeout(applyThermalRendererBudget,250);
-  setTimeout(applyThermalRendererBudget,1500);
-  addEventListener('resize',()=>setTimeout(applyThermalRendererBudget,80),{passive:true});
-
-  try{
-    const ai=$('optAICount');
-    if(ai&&(typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE)){
-      // Keep the user's AI-count setting unchanged. Thermal optimization is handled by DPR/FPS/HUD/audio throttling, not by silently changing race settings.
-      const hint=$('teamModeHint');
-      if(hint)hint.textContent='iPhone 최적화 모드가 적용되어 렌더링과 오디오 업데이트 비용을 줄입니다. 경쟁 차량 수 설정은 사용자가 직접 바꾸기 전까지 유지됩니다.';
-    }
-  }catch(_){ }
-
-  try{
-    const oldHud=drawHud;
-    if(typeof oldHud==='function'&&!oldHud.__thermalHudThrottle){
-      let lastHud=0;
-      drawHud=function(){
-        if((typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE)&&state!=='menu'){
-          const n=nowMs();
-          if(n-lastHud<66)return;
-          lastHud=n;
-        }
-        return oldHud.apply(this,arguments);
-      };
-      drawHud.__thermalHudThrottle=true;
-    }
-  }catch(_){ }
-
-  try{
-    const oldAISound=updateAIEngineSounds;
-    if(typeof oldAISound==='function'&&!oldAISound.__thermalAiSoundThrottle){
-      let lastAiAudio=0;
-      updateAIEngineSounds=function(mul){
-        if(window.__f1FastGlobalMuted||window.__allGameSoundMuted)return;
-        if((typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE)&&state!=='menu'){
-          const n=nowMs();
-          if(n-lastAiAudio<90)return;
-          lastAiAudio=n;
-        }
-        return oldAISound.apply(this,arguments);
-      };
-      updateAIEngineSounds.__thermalAiSoundThrottle=true;
-    }
-  }catch(_){ }
-
-  function writeBuildBadge(){
-    try{
-      let b=$('mobileBuildBadgeFinal');
-      if(!b){
-        b=document.createElement('div');
-        b.id='mobileBuildBadgeFinal';
-        b.style.cssText='margin:6px auto 0;color:#7f93a4;font-size:8.5px;letter-spacing:.7px;text-align:center;';
-        const btn=$('btnStart');
-        if(btn&&btn.parentNode)btn.parentNode.insertBefore(b,btn);
-      }
-      b.textContent=BUILD+' · JSON optional · 30fps thermal mode';
-    }catch(_){ }
-  }
-
-  /* ---------- Fast global mute: no per-frame WebAudio work while muted. ---------- */
-  function audioParamNow(param,value){
-    try{
-      const C=(typeof SND!=='undefined'&&SND&&SND.ctx)?SND.ctx:null;
-      if(param&&typeof param.cancelScheduledValues==='function'&&C)param.cancelScheduledValues(C.currentTime);
-      if(param&&typeof param.setValueAtTime==='function'&&C)param.setValueAtTime(value,C.currentTime);
-      else if(param)param.value=value;
-    }catch(_){try{if(param)param.value=value;}catch(__){ }}
-  }
-  function gainZero(node){try{if(node&&node.gain)audioParamNow(node.gain,0);}catch(_){ }}
-  function silenceNodesOnce(){
-    try{
-      if(typeof SND==='undefined'||!SND)return;
-      gainZero(SND.eGain);gainZero(SND.sGain);gainZero(SND.rGain);gainZero(SND.cGain);gainZero(SND.finalBgmGain);gainZero(SND.robustBgmGain);gainZero(SND.bgmExternalGain);gainZero(SND.bgmGain);
-      if(SND.ai)for(const v of SND.ai)gainZero(v&&v.gain);
-      if(SND.master&&SND.master.gain)audioParamNow(SND.master.gain,0);
-    }catch(_){ }
-  }
-  function bgmAudioEl(){try{return (typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');}catch(_){return $('bgmAudio');}}
-  function setFastMuted(on,show=true){
-    on=!!on;
-    window.__f1FastGlobalMuted=on;
-    window.__allGameSoundMuted=on;
-    window.__f1GlobalSoundMuted=on;
-    try{if(typeof SND!=='undefined'&&SND)SND.muted=on;}catch(_){ }
-    const a=bgmAudioEl();
-    if(on){
-      silenceNodesOnce();
-      try{if(a){a.pause();a.muted=true;}}catch(_){ }
-    }else{
-      try{
-        if(typeof initAudio==='function')initAudio();
-        if(typeof SND!=='undefined'&&SND&&SND.master&&SND.master.gain)audioParamNow(SND.master.gain,0.96);
-      }catch(_){ }
-      try{if(a){a.muted=false;const vol=(typeof bgmVolume==='function'?bgmVolume():0.84);a.volume=clampLocal(vol*0.95,0,1);}}catch(_){ }
-      setTimeout(()=>{try{playSelectedBgm(false,'unmute');}catch(_){ }},90);
-    }
-    try{
-      const b=$('tMute');
-      if(b){b.textContent=on?'MUTED':'MUTE';b.classList.toggle('on',on);}
-    }catch(_){ }
-    if(show){try{if(typeof showMsg==='function')showMsg(on?'MUTED':'SOUND ON','',580);}catch(_){ }}
-  }
-  window.__setAllGameMuted=setFastMuted;
-  window.__setF1FastGlobalMuted=setFastMuted;
-
-  try{
-    const oldEngine=updateEngineSound;
-    if(typeof oldEngine==='function'&&!oldEngine.__fastMuteGate20260630){
-      updateEngineSound=function(){
-        if(window.__f1FastGlobalMuted||window.__allGameSoundMuted){silenceNodesOnce();return;}
-        return oldEngine.apply(this,arguments);
-      };
-      updateEngineSound.__fastMuteGate20260630=true;
-    }
-  }catch(_){ }
-
-  function bindFastMuteControls(){
-    try{
-      const old=$('tMute');
-      if(old&&old.dataset.fastMuteFinal20260630!=='1'){
-        const b=old.cloneNode(true);
-        b.dataset.fastMuteFinal20260630='1';
-        b.dataset.finalOwned='1';
-        old.replaceWith(b);
-        const run=e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }setFastMuted(!(window.__f1FastGlobalMuted||window.__allGameSoundMuted),true);};
-        for(const ev of ['pointerdown','touchstart','mousedown','click'])b.addEventListener(ev,run,{capture:true,passive:false});
-      }
-    }catch(_){ }
-  }
-  bindFastMuteControls();
-  setInterval(bindFastMuteControls,1200);
-  window.addEventListener('keydown',e=>{
-    const k=(typeof keyId==='function')?keyId(e):String(e.key||'').toLowerCase();
-    if(k==='m'){
-      try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
-      setFastMuted(!(window.__f1FastGlobalMuted||window.__allGameSoundMuted),true);
-    }
-  },true);
-
-  /* ---------- JSON-optional GitHub BGM loader. ---------- */
-  function setStatus(text,stateName='info'){
-    try{if(typeof setBgmStatus==='function')setBgmStatus(text,stateName);else{const e=$('bgmFileName');if(e){e.textContent=text;e.dataset.state=stateName;}}}catch(_){ }
-  }
-  function humanName(path){
-    const raw=decodeURIComponent(String(path||'').split('/').pop()||'BGM');
-    return raw.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'BGM';
-  }
-  function encPath(p){return String(p||'').split('/').filter(Boolean).map(encodeURIComponent).join('/');}
-  function safeDecode(s){try{return decodeURIComponent(String(s||''));}catch(_){return String(s||'');}}
-  function isAudioPath(p){return AUDIO_RE.test(String(p||''));}
-  function cleanRel(p){
-    p=String(p||'').trim().replace(/^\.\//,'').replace(/^\/+/,'');
-    if(!p||/^(javascript|data):/i.test(p)||!isAudioPath(p))return '';
-    return p.split('/').filter(Boolean).map(seg=>encodeURIComponent(safeDecode(seg))).join('/');
-  }
-  function uniqueTracks(items){
-    const seen=new Set(),out=[];
-    for(const it of items||[]){
-      const src=String(it&&it.src||it&&it.path||it&&it.url||it||'').trim();
-      if(!src||!isAudioPath(src))continue;
-      const key=src.toLowerCase();
-      if(seen.has(key))continue;
-      seen.add(key);out.push({src:src,name:String(it&&it.name||it&&it.title||humanName(src))});
-    }
-    return out;
-  }
-  async function fetchJson(url){try{const r=await fetch(url,{cache:'no-store'});if(r.ok)return await r.json();}catch(_){ }return null;}
-  async function urlExists(url){
-    if(!url)return false;
-    try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});if(r.ok)return true;}catch(_){ }
-    try{const r=await fetch(url,{method:'GET',cache:'no-store',headers:{'Range':'bytes=0-1'}});return !!(r.ok||r.status===206);}catch(_){return false;}
-  }
-  async function verifyTracks(tracks,limit=80){
-    const out=[];
-    for(const t of uniqueTracks(tracks)){
-      if(out.length>=limit)break;
-      if(/^https?:\/\//i.test(t.src)){out.push(t);continue;}
-      if(await urlExists(t.src))out.push(t);
-    }
-    return out;
-  }
-  const QUICK_DIRECT_PATHS=['bgm/race.mp3','bgm/bgm.mp3','race.mp3','bgm.mp3','music/race.mp3','music/bgm.mp3','audio/race.mp3','audio/bgm.mp3','bgm/race.m4a','bgm/bgm.m4a'];
-  const FULL_DIRECT_PATHS=[];
-  (function buildDirectPaths(){
-    const dirs=['bgm','music','audio','assets/music','assets/audio',''];
-    const names=['race','bgm','music','race_bgm','main','track','track1','soundtrack','menu','menu_bgm','f1','drive','racing'];
-    const exts=['mp3','m4a','aac','wav','ogg','flac'];
-    for(const d of dirs)for(const n of names)for(const e of exts)FULL_DIRECT_PATHS.push((d?d+'/':'')+n+'.'+e);
-    try{const params=new URLSearchParams(location.search);for(const key of ['bgm','music','audio','track']){const v=params.get(key);if(v){QUICK_DIRECT_PATHS.unshift(v);FULL_DIRECT_PATHS.unshift(v);}}}catch(_){ }
-    try{const saved=localStorage.getItem('f1BgmPath');if(saved){QUICK_DIRECT_PATHS.unshift(saved);FULL_DIRECT_PATHS.unshift(saved);}}catch(_){ }
-  })();
-  async function loadDirectTracks(full=false){
-    const list=uniqueTracks(full?FULL_DIRECT_PATHS:QUICK_DIRECT_PATHS);
-    const found=[];let i=0;
-    async function worker(){
-      while(i<list.length&&found.length<20){
-        const item=list[i++];
-        const src=cleanRel(item.src);if(!src)continue;
-        if(await urlExists(src))found.push({src,name:humanName(src)});
-      }
-    }
-    await Promise.all([worker(),worker(),worker()]);
-    return uniqueTracks(found);
-  }
-  function parseManifest(data){
-    const arr=Array.isArray(data)?data:(data&&Array.isArray(data.tracks)?data.tracks:(data&&Array.isArray(data.files)?data.files:(data&&Array.isArray(data.music)?data.music:(data&&Array.isArray(data.bgm)?data.bgm:[]))));
-    return uniqueTracks(arr.map(x=>typeof x==='string'?cleanRel(x):{src:cleanRel(x.src||x.path||x.file||x.url),name:x.name||x.title||humanName(x.src||x.path||x.file||x.url)}));
-  }
-  async function loadManifestTracksOptional(){
-    const manifests=['music_manifest.json','bgm_manifest.json','audio_manifest.json','tracks.json','music-list.json','bgm/music_manifest.json','bgm/tracks.json','music/music_manifest.json','audio/music_manifest.json'];
-    for(const m of manifests){
-      const tracks=parseManifest(await fetchJson(m));
-      if(tracks.length)return {tracks:await verifyTracks(tracks,80),source:m};
-    }
-    return {tracks:[],source:''};
-  }
-  function inferGithubInfo(){
-    const host=String(location.hostname||'').toLowerCase();
-    if(!host.endsWith('.github.io'))return null;
-    const owner=host.replace(/\.github\.io$/,'');
-    const parts=location.pathname.split('/').filter(Boolean).map(safeDecode);
-    let repo=owner+'.github.io';
-    let dir=[];
-    if(parts.length&&parts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(parts[0])){repo=parts[0];dir=parts.slice(1);}else dir=parts.slice();
-    if(dir.length&&/\.[a-z0-9]{2,8}$/i.test(dir[dir.length-1]))dir.pop();
-    return {owner,repo,dir:dir.join('/')};
-  }
-  async function githubBranches(info){
-    const out=[];
-    const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));
+    const repo=await fetchJsonFree('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo),4300);
     if(repo&&repo.default_branch)out.push(repo.default_branch);
     for(const b of ['gh-pages','main','master'])if(!out.includes(b))out.push(b);
     return out;
   }
-  function pageRelFromRepoPath(repoPath,siteDir){
-    let p=String(repoPath||'').replace(/^\/+/,'');
-    const d=String(siteDir||'').replace(/^\/+|\/+$/g,'');
-    if(d&&p.toLowerCase().startsWith(d.toLowerCase()+'/'))p=p.slice(d.length+1);
-    if(!d&&p.toLowerCase().startsWith('docs/'))p=p.slice(5);
-    return cleanRel(p);
+  function makeTrackFree(info,branch,filePath){
+    const path=String(filePath||'').replace(/^\/+/,'');
+    const rel=pageRelFromRepoPathFree(path,info.dir);
+    return {
+      src:rel||rawGithubUrlFree(info,branch,path),
+      fallbackSrc:rawGithubUrlFree(info,branch,path),
+      name:labelFree(path),
+      path:path,
+      branch:branch,
+      served:!!rel
+    };
   }
-  function rawGithubUrl(info,branch,path){return 'https://raw.githubusercontent.com/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/'+encodeURIComponent(branch)+'/'+encPath(path);}
-  async function loadGithubApiTracks(){
-    const info=inferGithubInfo();if(!info)return {tracks:[],source:''};
-    const branches=await githubBranches(info);
-    const audioDirs=['','bgm','music','audio','sound','sounds','assets/music','assets/audio'];
-    const siteDir=String(info.dir||'').replace(/^\/+|\/+$/g,'');
-    const dirCandidates=[];
-    function addDir(d){d=String(d||'').replace(/^\/+|\/+$/g,'');if(!dirCandidates.includes(d))dirCandidates.push(d);}
-    for(const sub of audioDirs)addDir([siteDir,sub].filter(Boolean).join('/'));
-    if(!siteDir)for(const sub of audioDirs)addDir(['docs',sub].filter(Boolean).join('/'));
-
-    for(const br of branches){
-      for(const d of dirCandidates){
-        const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+encPath(d)+'?ref='+encodeURIComponent(br);
-        const data=await fetchJson(url);
-        if(!Array.isArray(data))continue;
-        const tracks=[];
-        for(const x of data){
-          if(!x||x.type!=='file'||!isAudioPath(x.name||x.path||''))continue;
-          const rel=pageRelFromRepoPath((d?d+'/':'')+x.name,siteDir);
-          if(rel)tracks.push({src:rel,name:humanName(x.name)});
-          if(x.download_url)tracks.push({src:x.download_url,name:humanName(x.name)});
-        }
-        const clean=uniqueTracks(tracks);
-        if(clean.length)return {tracks:clean,source:'GitHub '+br+(d?(' / '+d):'')};
-      }
+  function uniqueTracksFree(items,limit=160){
+    const seen=new Set(),out=[];
+    for(const item of items||[]){
+      if(!item)continue;
+      const src=String(item.src||item.path||item.url||item.file||item||'').trim();
+      if(!src||!isAudioFree(src))continue;
+      const key=src.toLowerCase();
+      if(seen.has(key))continue;
+      seen.add(key);
+      out.push({
+        src:src,
+        fallbackSrc:item.fallbackSrc||src,
+        name:item.name||item.title||labelFree(src),
+        path:item.path||src,
+        branch:item.branch||'',
+        served:!!item.served
+      });
+      if(out.length>=limit)break;
     }
+    return out;
+  }
+  async function scanGithubAudioTreeFree(force=false){
+    const info=inferGithubPagesRepoFree();
+    if(!info)return {tracks:[],source:'manual path'};
+    if(!force){
+      const cached=readBgmCacheFree(info);
+      if(cached&&cached.tracks.length)return {tracks:cached.tracks,source:(cached.source||'GitHub cache')+' · cache'};
+    }
+    const branches=await githubBranchesFree(info);
+    const all=[];
     for(const br of branches){
-      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
+      const tree=await fetchJsonFree('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1',6500);
       const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
-      const tracks=[];
+      if(!arr.length)continue;
       for(const x of arr){
-        if(!x||x.type!=='blob'||!isAudioPath(x.path||''))continue;
+        if(!x||x.type!=='blob'||!isAudioFree(x.path||''))continue;
         const p=String(x.path||'');
-        const lower=p.toLowerCase();
-        if(!/(^|\/)(bgm|music|audio|sound|sounds)(\/|$)/.test(lower)&&!/(^|\/)assets\/(music|audio)\//.test(lower))continue;
-        const rel=pageRelFromRepoPath(p,siteDir);
-        if(rel)tracks.push({src:rel,name:humanName(p)});
-        tracks.push({src:rawGithubUrl(info,br,p),name:humanName(p)});
+        if(/(^|\/)(node_modules|\.git|dist\/three|vendor)(\/|$)/i.test(p))continue;
+        all.push(makeTrackFree(info,br,p));
       }
-      const clean=uniqueTracks(tracks);
-      if(clean.length)return {tracks:clean,source:'GitHub tree '+br};
+      if(all.length)break;
+    }
+    all.sort((a,b)=>{
+      const pr=x=>{
+        const p=String(x.path||'').toLowerCase();
+        let s=0;
+        if(x.served)s-=50;
+        if(/(^|\/)(bgm|music|audio|sound|sounds)(\/|$)/.test(p)||/(^|\/)assets\/(music|audio)\//.test(p))s-=20;
+        if(p.startsWith('docs/'))s-=5;
+        return s;
+      };
+      return pr(a)-pr(b)||String(a.name).localeCompare(String(b.name));
+    });
+    const tracks=uniqueTracksFree(all,160);
+    const payload={tracks,source:tracks.length?'GitHub repo tree':'GitHub'};
+    if(tracks.length)writeBgmCacheFree(info,payload);
+    return payload;
+  }
+  function parseManifestFree(data){
+    const arr=Array.isArray(data)?data:(data&&Array.isArray(data.tracks)?data.tracks:(data&&Array.isArray(data.files)?data.files:(data&&Array.isArray(data.music)?data.music:(data&&Array.isArray(data.bgm)?data.bgm:[]))));
+    return uniqueTracksFree((arr||[]).map(x=>{
+      if(typeof x==='string')return {src:encodePathFree(x),name:labelFree(x),served:true};
+      const src=String(x&& (x.src||x.path||x.file||x.url) ||'');
+      return {src:/^https?:\/\//i.test(src)?src:encodePathFree(src),name:(x&& (x.name||x.title))||labelFree(src),served:!/^https?:\/\//i.test(src)};
+    }),160);
+  }
+  async function scanManifestFree(){
+    const manifests=['music_manifest.json','bgm_manifest.json','audio_manifest.json','tracks.json','music-list.json','bgm/music_manifest.json','music/music_manifest.json','audio/music_manifest.json'];
+    for(const m of manifests){
+      const tracks=parseManifestFree(await fetchJsonFree(m,3000));
+      if(tracks.length)return {tracks,source:m};
     }
     return {tracks:[],source:''};
   }
-  async function discoverBgmTracks(manual=false){
-    const direct=await loadDirectTracks(manual);
-    if(direct.length)return {tracks:direct,source:manual?'fixed path search / no JSON':'fixed path / no JSON'};
-    const manifest=await loadManifestTracksOptional();
-    if(manifest.tracks.length)return manifest;
-    if(manual)return await loadGithubApiTracks();
-    return {tracks:[],source:''};
+  function directTracksFree(){
+    const out=[];
+    try{
+      const params=new URLSearchParams(location.search);
+      for(const k of ['bgm','music','audio','track']){const v=params.get(k);if(v&&isAudioFree(v))out.push({src:encodePathFree(v),name:labelFree(v),served:true});}
+    }catch(_){}
+    try{
+      const saved=localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath');
+      if(saved&&isAudioFree(saved))out.push({src:saved,name:labelFree(saved),served:!/^https?:\/\//i.test(saved)});
+    }catch(_){}
+    return uniqueTracksFree(out,20);
   }
-  function addTracksToSelect(tracks,source){
-    const sel=$('bgmTrack');if(!sel)return 0;
+  async function discoverBgmFree(force=false){
+    const direct=directTracksFree();
+    const manifest=await scanManifestFree();
+    const gh=await scanGithubAudioTreeFree(force);
+    const tracks=uniqueTracksFree([...(direct||[]),...(manifest.tracks||[]),...(gh.tracks||[])],180);
+    const src=gh.tracks&&gh.tracks.length?gh.source:(manifest.source||'direct path');
+    return {tracks,source:src};
+  }
+  function clearBgmOptionsFree(sel){
+    Array.from(sel.children).forEach(ch=>{
+      if(ch.tagName==='OPTGROUP'||(ch.tagName==='OPTION'&&ch.dataset.placeholder!=='1'&&ch.dataset.githubPlaceholder!=='1'))ch.remove();
+    });
+    Array.from(sel.querySelectorAll('option[data-placeholder="1"],option[data-github-placeholder="1"]')).forEach(o=>o.remove());
+  }
+  function addBgmTracksFree(tracks,source){
+    const sel=$free('bgmTrack');if(!sel)return 0;
+    clearBgmOptionsFree(sel);
     if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
-    for(const g of qsa('optgroup[data-thermal-bgm="1"],optgroup[data-final-robust-github="1"],optgroup[data-final-github="1"],optgroup[data-same-folder="1"]',sel))g.remove();
-    for(const o of qsa('option',sel)){if(o.dataset.placeholder!=='1'&&o.dataset.githubPlaceholder!=='1')o.remove();}
     if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
-    const clean=uniqueTracks(tracks);if(!clean.length){
-      if(!sel.options.length){const ph=document.createElement('option');ph.value='';ph.dataset.placeholder='1';ph.textContent='BGM 검색 필요';sel.appendChild(ph);}
+    for(const k of Object.keys(BGM_TRACKS_FREE))delete BGM_TRACKS_FREE[k];
+
+    const clean=uniqueTracksFree(tracks,180);
+    if(!clean.length){
+      const ph=document.createElement('option');
+      ph.value='';
+      ph.dataset.placeholder='1';
+      ph.textContent='BGM 검색을 눌러 GitHub 음원을 찾으세요';
+      sel.appendChild(ph);
       return 0;
     }
-    qsa('option[data-placeholder="1"],option[data-github-placeholder="1"]',sel).forEach(o=>o.remove());
-    const group=document.createElement('optgroup');group.label='BGM · '+(source||'audio');group.dataset.thermalBgm='1';group.dataset.sameFolder='1';
+    const group=document.createElement('optgroup');
+    group.label='GitHub BGM · 파일명 자유 · '+(source||'repo');
+    group.dataset.finalFreeNameGithub='1';
+    group.dataset.sameFolder='1';
     clean.forEach((t,i)=>{
-      const key=SAME_PREFIX+'thermal_'+i+'_'+String(t.src).toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,46);
-      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'github'};
-      const opt=document.createElement('option');opt.value=key;opt.textContent=t.name;opt.dataset.baseLabel=t.name;opt.dataset.sameFolder='1';opt.title=t.src;group.appendChild(opt);
+      const key=SAME_PREFIX_FREE+'free_'+i+'_'+String(t.path||t.src).toLowerCase().replace(/[^a-z0-9가-힣]+/g,'_').slice(0,44);
+      const value={src:t.src,fallbackSrc:t.fallbackSrc||t.src,name:t.name,path:t.path||t.src,kind:'github-free-name'};
+      BGM_TRACKS_FREE[key]=value;
+      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]=value;
+      const opt=document.createElement('option');
+      opt.value=key;
+      opt.textContent=t.name+(t.served?'':' · raw');
+      opt.dataset.baseLabel=t.name;
+      opt.dataset.sameFolder='1';
+      opt.title=t.path||t.src;
+      group.appendChild(opt);
     });
     sel.appendChild(group);
-    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
-    const options=Array.from(sel.options);
-    if(remembered&&options.some(o=>o.value===remembered))sel.value=remembered;else sel.value=group.children[0].value;
-    const chosen=(typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[sel.value]:null;
-    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);if(chosen)localStorage.setItem('f1BgmPath',chosen.src);}catch(_){ }
+    const savedPath=(()=>{try{return localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath')||'';}catch(_){return '';}})();
+    const savedChoice=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
+    const byPath=Object.entries(BGM_TRACKS_FREE).find(([,v])=>savedPath&&(v.src===savedPath||v.fallbackSrc===savedPath||v.path===savedPath));
+    if(byPath)sel.value=byPath[0];
+    else if(savedChoice&&Array.from(sel.options).some(o=>o.value===savedChoice))sel.value=savedChoice;
+    else sel.value=group.children[0].value;
+    const chosen=BGM_TRACKS_FREE[sel.value]||((typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[sel.value]:null);
+    try{
+      localStorage.setItem('f1BgmChoice',sel.value);
+      localStorage.setItem('raceBgmChoice',sel.value);
+      if(chosen)localStorage.setItem('f1BgmPath',chosen.src);
+    }catch(_){}
     return clean.length;
   }
-  function selectedSource(choice){
-    const sel=$('bgmTrack');choice=choice||(sel&&sel.value)||'';
-    if(choice&&String(choice).startsWith(SAME_PREFIX)&&typeof BGM!=='undefined'&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
-      const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||'BGM',kind:t.kind||'github'};
-    }
+  async function refreshBgmFree(force=false){
+    const btn=$free('bgmSameFolderRefresh')||$free('bgmSameFolder');
+    if(btn){btn.textContent='검색 중…';btn.classList.add('simpleBusy');btn.classList.remove('simpleOk','simpleErr','ok','err');}
+    setBgmStatusFree(force?'GitHub 리포지토리에서 모든 오디오 파일을 검색 중입니다…':'BGM 목록 확인 중…','info');
+    const res=await discoverBgmFree(force);
+    const n=addBgmTracksFree(res.tracks,res.source);
+    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',force&&n===0);btn.textContent=n?('BGM '+n+'곡'):'BGM 검색';}
+    if(n>0)setBgmStatusFree('BGM '+n+'곡 사용 가능 · '+selectedBgmLabelFree(),'ready');
+    else setBgmStatusFree('GitHub 음원을 찾지 못했습니다. 공개 repo의 bgm/ 폴더에 mp3/m4a 파일을 올린 뒤 BGM 검색을 누르세요.','error');
+    return n;
+  }
+  window.__refreshSameFolderMusic=refreshBgmFree;
+  window.__refreshFreeNameGithubBgm=refreshBgmFree;
+
+  function selectedBgmFree(choice){
+    const sel=$free('bgmTrack');
+    choice=choice||String(sel&&sel.value||'');
+    if(choice&&BGM_TRACKS_FREE[choice])return BGM_TRACKS_FREE[choice];
+    try{if(choice&&typeof BGM!=='undefined'&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice])return BGM.sameFolderTracks[choice];}catch(_){}
+    try{
+      const saved=localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath');
+      if(saved&&isAudioFree(saved))return {src:saved,fallbackSrc:saved,name:labelFree(saved),kind:'direct'};
+    }catch(_){}
     return null;
   }
-  function selectedLabel(choice){const src=selectedSource(choice);if(src)return src.name;const sel=$('bgmTrack');const o=sel?Array.from(sel.options).find(x=>x.value===(choice||sel.value)):null;return o?(o.dataset.baseLabel||o.textContent||'BGM'):'BGM';}
-  function bgmOn(){try{return typeof bgmEnabled==='function'?bgmEnabled():!!($('optBgm')&&$('optBgm').checked);}catch(_){return !!($('optBgm')&&$('optBgm').checked);}}
-  function bgmVol(){try{return typeof bgmVolume==='function'?bgmVolume():0.84;}catch(_){const e=$('bgmVolume');return clampLocal((parseInt(e&&e.value,10)||84)/100,0,1);}}
-  let lastPlayAttempt=0,lastBgmFrameUpdate=0;
-  function shouldBgmPlay(preview=false){return bgmOn()&&!window.__f1FastGlobalMuted&&!window.__allGameSoundMuted&&!!selectedSource()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));}
-  function stopSelectedBgm(note){
-    const a=bgmAudioEl();try{if(a){a.pause();a.muted=true;}}catch(_){ }
-    try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.previewInMenu=false;BGM.fallbackNotified=false;}}catch(_){ }
-    try{gainZero(SND&&SND.robustBgmGain);gainZero(SND&&SND.finalBgmGain);gainZero(SND&&SND.bgmExternalGain);gainZero(SND&&SND.bgmGain);}catch(_){ }
-    if(note)setStatus(note,'paused');
-    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  function selectedBgmLabelFree(choice){
+    const t=selectedBgmFree(choice);if(t)return t.name||labelFree(t.src);
+    const sel=$free('bgmTrack');
+    const opt=sel?Array.from(sel.options).find(o=>o.value===(choice||sel.value)):null;
+    return opt?(opt.dataset.baseLabel||opt.textContent||'BGM'):'BGM';
   }
-  function playSelectedBgm(preview=false,reason='play'){
-    if(preview&&state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
-    const src=selectedSource();const a=bgmAudioEl();
-    if(!a||!src){setStatus('BGM 검색을 누르거나 bgm/race.mp3로 올려 주세요.','paused');return false;}
-    if(!shouldBgmPlay(preview)){if(state==='menu'&&!preview)stopSelectedBgm();return false;}
-    const n=nowMs();if(n-lastPlayAttempt<450&&a.src&&!a.paused)return true;lastPlayAttempt=n;
+  function audioElFree(){try{return typeof bgmAudio==='function'?bgmAudio():$free('bgmAudio');}catch(_){return $free('bgmAudio');}}
+  function bgmEnabledFree(){try{return typeof bgmEnabled==='function'?bgmEnabled():!!($free('optBgm')&&$free('optBgm').checked);}catch(_){return !!($free('optBgm')&&$free('optBgm').checked);}}
+  function bgmVolumeFree(){try{return typeof bgmVolume==='function'?bgmVolume():clampFree((parseInt($free('bgmVolume')&&$free('bgmVolume').value,10)||84)/100,0,1);}catch(_){return 0.84;}}
+  function isMutedFree(){try{return !!(window.__f1FinalGlobalMuted||window.__f1FastGlobalMuted||window.__allGameSoundMuted||window.__f1GlobalSoundMuted||(typeof SND!=='undefined'&&SND&&SND.muted));}catch(_){return false;}}
+  function setGainOnceFree(node,value){
+    try{
+      if(!node||!node.gain)return;
+      const ctx=(typeof SND!=='undefined'&&SND&&SND.ctx)?SND.ctx:null;
+      if(ctx&&node.gain.cancelScheduledValues)node.gain.cancelScheduledValues(ctx.currentTime);
+      if(ctx&&node.gain.setValueAtTime)node.gain.setValueAtTime(value,ctx.currentTime);
+      else node.gain.value=value;
+    }catch(_){try{if(node&&node.gain)node.gain.value=value;}catch(__){}}
+  }
+  function zeroPlayAudioOnceFree(){
+    try{
+      if(typeof SND!=='undefined'&&SND){
+        ['eGain','sGain','rGain','cGain','crowdGain','crowdRoarGain','crowdBodyGain','crowdCheerGain','bgmGain','bgmExternalGain','finalBgmGain','robustBgmGain','extFanGain'].forEach(k=>setGainOnceFree(SND[k],0));
+        if(Array.isArray(SND.ai))for(const v of SND.ai)setGainOnceFree(v&&v.gain,0);
+        if(Array.isArray(SND.aiEngines))for(const v of SND.aiEngines)setGainOnceFree(v&&v.gain,0);
+      }
+    }catch(_){}
+  }
+  function shouldPlayBgmFree(preview=false){
+    return !!selectedBgmFree()&&bgmEnabledFree()&&!isMutedFree()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));
+  }
+  function stopBgmFree(note){
+    const a=audioElFree();
+    try{if(a){a.pause();a.muted=true;}}catch(_){}
+    try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.previewInMenu=false;BGM.fallbackNotified=false;}}catch(_){}
+    zeroPlayAudioOnceFree();
+    if(note)setBgmStatusFree(note,'paused');
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){}
+  }
+  let lastPlayAttemptFree=0,lastBgmUpdateFree=0;
+  function playBgmFree(preview=false,reason='play'){
+    if(preview&&state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;}catch(_){}}
+    const a=audioElFree();
+    const src=selectedBgmFree();
+    if(!a||!src){setBgmStatusFree('BGM 검색으로 GitHub 음원을 먼저 선택하세요.','paused');return false;}
+    if(!shouldPlayBgmFree(preview)){if(state==='menu'&&!preview)stopBgmFree();return false;}
+    const t=nowFree();
+    if(t-lastPlayAttemptFree<360&&a.src&&!a.paused)return true;
+    lastPlayAttemptFree=t;
+    try{
+      if(typeof initAudio==='function')initAudio();
+      if(typeof SND!=='undefined'&&SND&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});
+    }catch(_){}
     try{
       const abs=new URL(src.src,document.baseURI).href;
       a.crossOrigin='anonymous';
-      a.loop=true;a.playsInline=true;a.setAttribute('playsinline','');a.setAttribute('webkit-playsinline','');a.preload='auto';
-      if(a.dataset.thermalBgmSrc!==abs){a.src=src.src;a.dataset.thermalBgmSrc=abs;try{a.load();a.currentTime=0;}catch(_){ }}
-      a.muted=false;a.volume=clampLocal(bgmVol()*0.95,0,1);
-      if(typeof BGM!=='undefined'){BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='thermal|'+abs;}
+      a.loop=true;
+      a.preload='auto';
+      a.playsInline=true;
+      a.setAttribute('playsinline','');
+      a.setAttribute('webkit-playsinline','');
+      if(a.dataset.finalFreeBgmSrc!==abs){
+        a.dataset.finalFreeBgmSrc=abs;
+        a.dataset.finalFreeFallback=src.fallbackSrc||src.src;
+        a.src=src.src;
+        try{a.load();a.currentTime=0;}catch(_){}
+      }
+      a.onerror=function(){
+        try{
+          const fb=this.dataset.finalFreeFallback;
+          if(fb&&new URL(fb,document.baseURI).href!==this.src){
+            this.src=fb;this.load();this.play().catch(()=>{});
+            setBgmStatusFree('Pages 경로 실패 → GitHub raw 경로로 재시도 중 · '+(src.name||'BGM'),'info');
+          }
+        }catch(_){}
+      };
+      const vol=clampFree(bgmVolumeFree()*0.95,0,1);
+      a.volume=vol;
+      a.muted=false;
+      try{
+        if(typeof SND!=='undefined'&&SND){
+          setGainOnceFree(SND.bgmGain,0);
+          setGainOnceFree(SND.bgmExternalGain,0);
+          setGainOnceFree(SND.robustBgmGain,vol);
+          setGainOnceFree(SND.finalBgmGain,vol);
+        }
+      }catch(_){}
+      if(typeof BGM!=='undefined'){BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='free-name|'+abs;}
       const p=a.play();
-      setStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+src.name,'ready');
-      if(p&&typeof p.then==='function')p.catch(()=>setStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
+      setBgmStatusFree((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+(src.name||labelFree(src.src)),'ready');
+      if(p&&typeof p.then==='function')p.catch(()=>setBgmStatusFree('iPhone이 자동 재생을 막았습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
       return true;
-    }catch(_){setStatus('선택한 BGM을 재생할 수 없습니다. 경로와 배포 상태를 확인하세요.','error');return false;}
+    }catch(_){
+      setBgmStatusFree('선택한 BGM을 재생할 수 없습니다. GitHub 배포/경로를 확인하세요.','error');
+      return false;
+    }
   }
-  async function refreshOptimizedBgm(manual=false){
-    const btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
-    if(btn){btn.textContent='검색 중…';btn.classList.add('simpleBusy');}
-    if(manual)setStatus('BGM 검색 중… JSON 없이 고정 경로 → manifest → GitHub API 순서로 확인합니다.','info');
-    const result=await discoverBgmTracks(manual);
-    const n=addTracksToSelect(result.tracks,result.source);
-    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',manual&&n===0);btn.textContent=n?('BGM '+n+'곡'):'BGM 검색';}
-    if(n>0){setStatus('BGM '+n+'곡을 찾았습니다 · '+selectedLabel(),'ready');if(manual)playSelectedBgm(state==='menu','manual');}
-    else if(manual)setStatus('BGM을 못 찾았습니다. JSON 없이 쓰려면 파일명을 bgm/race.mp3 또는 bgm/bgm.mp3로 올리는 방식이 가장 안정적입니다.','error');
-    return n;
-  }
-  window.__refreshSameFolderMusic=refreshOptimizedBgm;
-  window.__refreshRobustGithubBgm=refreshOptimizedBgm;
-  window.__playSelectedGithubBgm=(preview=false)=>playSelectedBgm(!!preview,'external');
-  window.__tryStartSameFolderBgm=(opts={})=>playSelectedBgm(!!(opts&&opts.fromGesture),'legacy');
 
   try{
-    bgmChoice=function(){const sel=$('bgmTrack');return sel?String(sel.value||''):'';};
-    bgmChoiceLabel=function(choice){return selectedLabel(choice);};
-    resolveBgmSource=function(choice){return selectedSource(choice||bgmChoice());};
-    startBackgroundMusic=function(opts={}){return playSelectedBgm(!!(opts&&opts.preview),'startBackgroundMusic');};
-    pauseBackgroundMusic=function(note){stopSelectedBgm(note||'BGM 정지');};
-    fallbackToBuiltInBgm=function(note){stopSelectedBgm(note||'GitHub BGM을 선택해 주세요.');};
-    updateBackgroundMusic=function(mul){
-      if(window.__f1FastGlobalMuted||window.__allGameSoundMuted){silenceNodesOnce();return;}
-      const n=nowMs();if((typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE)&&n-lastBgmFrameUpdate<240)return;lastBgmFrameUpdate=n;
-      const a=bgmAudioEl();const should=shouldBgmPlay(false);
-      if(a){a.muted=!should;a.volume=clampLocal(bgmVol()*0.95*(Number(mul)||1),0,1);}
-      if(should&&a&&a.src&&a.paused&&(state==='race'||state==='lights'))playSelectedBgm(false,'update');
-      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
-    };
+    bgmChoice=function(){const sel=$free('bgmTrack');return sel?String(sel.value||''):'';};
+    bgmChoiceLabel=function(choice){return selectedBgmLabelFree(choice);};
+    resolveBgmSource=function(choice){return selectedBgmFree(choice||bgmChoice());};
+    startBackgroundMusic=function(opts={}){return playBgmFree(!!(opts&&opts.preview),'startBackgroundMusic');};
+    pauseBackgroundMusic=function(note){stopBgmFree(note||'BGM 정지');};
+    fallbackToBuiltInBgm=function(note){stopBgmFree(note||'GitHub BGM만 사용합니다.');};
     updateBgmPreviewButton=function(){
-      const b=$('bgmPreview');if(!b)return;
-      const a=bgmAudioEl();const playing=!!(a&&a.src&&!a.paused&&!a.muted&&selectedSource());
-      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';b.classList.toggle('playing',playing);
+      const b=$free('bgmPreview');if(!b)return;
+      const a=audioElFree();
+      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&selectedBgmFree());
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
+      b.classList.toggle('playing',playing);
     };
-  }catch(_){ }
+    updateBackgroundMusic=function(mul=1){
+      if(isMutedFree())return;
+      const n=nowFree();
+      if(n-lastBgmUpdateFree<650)return;
+      lastBgmUpdateFree=n;
+      const a=audioElFree();
+      const should=shouldPlayBgmFree(false);
+      if(a){
+        a.muted=!should;
+        a.volume=clampFree(bgmVolumeFree()*0.95*(Number(mul)||1),0,1);
+        if(should&&a.paused&&(state==='race'||state==='lights'))playBgmFree(false,'update');
+        if(!should&&state==='menu')try{a.pause();}catch(_){}
+      }
+      try{updateBgmPreviewButton();}catch(_){}
+    };
+  }catch(_){}
 
-  function installBgmUi(){
-    const title=Array.from(document.querySelectorAll('.modeTitle')).find(x=>/BGM/i.test(x.textContent||''));
-    if(title)title.textContent='GITHUB BGM · JSON OPTIONAL';
-    const actions=document.querySelector('.musicActions');
-    if(actions){
-      let btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
-      if(!btn){btn=document.createElement('button');btn.type='button';actions.appendChild(btn);}
-      if(btn.dataset.noJsonThermalBgm!=='1'){
-        const clone=btn.cloneNode(true);clone.id='bgmSameFolderRefresh';clone.className='musicPreview musicFolder';clone.textContent='BGM 검색';clone.dataset.noJsonThermalBgm='1';btn.replaceWith(clone);btn=clone;
-        btn.addEventListener('click',async e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }try{if(typeof initAudio==='function')initAudio();}catch(_){ }await refreshOptimizedBgm(true);},{capture:true,passive:false});
+  function installBgmUiFree(){
+    try{
+      const title=Array.from(document.querySelectorAll('.modeTitle')).find(x=>/BGM/i.test(x.textContent||''));
+      if(title)title.textContent='GITHUB BGM · FILE NAME FREE';
+      const actions=document.querySelector('.musicActions');
+      if(actions){
+        let refresh=$free('bgmSameFolderRefresh')||$free('bgmSameFolder');
+        if(!refresh){refresh=document.createElement('button');refresh.type='button';actions.appendChild(refresh);}
+        if(refresh.dataset.finalFreeNameBgm!=='1'){
+          const b=refresh.cloneNode(true);
+          b.id='bgmSameFolderRefresh';
+          b.className='musicPreview musicFolder';
+          b.textContent='BGM 검색';
+          b.dataset.finalFreeNameBgm='1';
+          refresh.replaceWith(b);
+          b.addEventListener('click',async e=>{
+            try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}
+            try{if(typeof initAudio==='function')initAudio();}catch(_){}
+            await refreshBgmFree(true);
+            if(state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;playBgmFree(true,'manual-scan');}catch(_){}}
+          },{capture:true,passive:false});
+        }
+      }
+      let sel=$free('bgmTrack');
+      if(sel&&sel.dataset.finalFreeNameSelect!=='1'){
+        const clone=sel.cloneNode(true);
+        clone.dataset.finalFreeNameSelect='1';
+        sel.replaceWith(clone);
+        sel=clone;
+        sel.addEventListener('change',e=>{
+          try{e.stopImmediatePropagation();}catch(_){}
+          const src=selectedBgmFree(sel.value);
+          try{
+            localStorage.setItem('f1BgmChoice',sel.value);
+            localStorage.setItem('raceBgmChoice',sel.value);
+            if(src)localStorage.setItem('f1BgmPath',src.src);
+          }catch(_){}
+          if(state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;playBgmFree(true,'select');}catch(_){}}
+        },{capture:true,passive:true});
+      }
+      const preview=$free('bgmPreview');
+      if(preview&&preview.dataset.finalFreeNamePreview!=='1'){
+        const b=preview.cloneNode(true);
+        b.id='bgmPreview';
+        b.dataset.finalFreeNamePreview='1';
+        preview.replaceWith(b);
+        b.addEventListener('click',e=>{
+          try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}
+          const a=audioElFree();
+          if(a&&a.src&&!a.paused){stopBgmFree('미리듣기 정지 · '+selectedBgmLabelFree());return;}
+          try{if(typeof initAudio==='function')initAudio();if(typeof BGM!=='undefined')BGM.previewInMenu=true;}catch(_){}
+          playBgmFree(true,'preview');
+        },{capture:true,passive:false});
+      }
+      const browse=$free('bgmBrowse');if(browse)browse.style.display='none';
+      const file=$free('bgmFile');if(file)file.disabled=true;
+      const box=document.querySelector('.musicBox');
+      if(box){
+        Array.from(box.querySelectorAll('.licenseNote,.sameFolderNote,.sameFolderOnlyNote,.noJsonBgmPathNote,.noJsonBgmManualNote,.finalBgmPathNote,.robustBgmPathNote')).forEach(n=>n.style.display='none');
+        let note=box.querySelector('.freeNameBgmNote');
+        if(!note){note=document.createElement('div');note.className='freeNameBgmNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.42;';box.appendChild(note);}
+        note.innerHTML='파일명은 자유입니다. 공개 GitHub repo에 <b>mp3/m4a/wav/ogg/flac</b>를 올린 뒤 <b>BGM 검색</b>을 누르면 전체 repo에서 오디오 파일을 찾아 목록에 표시합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
+        let row=$free('bgmManualPathRow');
+        if(!row){
+          row=document.createElement('div');
+          row.id='bgmManualPathRow';
+          row.style.cssText='display:grid;grid-template-columns:minmax(160px,1fr) auto;gap:7px;margin-top:8px;';
+          row.innerHTML='<input id="bgmManualPath" type="text" inputmode="url" placeholder="직접 경로: bgm/원하는이름.mp3"><button type="button" id="bgmManualAdd">경로 추가</button>';
+          box.appendChild(row);
+        }
+        const input=$free('bgmManualPath');
+        if(input)input.style.cssText='background:#111820;color:#e7eef4;border:1px solid #3a4a58;border-radius:6px;padding:8px 9px;font-size:10px;';
+        const add=$free('bgmManualAdd');
+        if(add&&add.dataset.finalFreeNameManual!=='1'){
+          add.dataset.finalFreeNameManual='1';
+          add.style.cssText='font-size:10px;letter-spacing:.4px;padding:8px 10px;border-radius:6px;background:#202a34;border:1px solid #556675;color:#e8eef4;';
+          add.addEventListener('click',e=>{
+            try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}
+            const raw=String(($free('bgmManualPath')&&$free('bgmManualPath').value)||'').trim().replace(/^\.\//,'').replace(/^\/+/,'');
+            if(!raw||!isAudioFree(raw)){setBgmStatusFree('오디오 경로를 입력하세요. 예: bgm/my song.mp3','error');return;}
+            const rel=/^https?:\/\//i.test(raw)?raw:encodePathFree(raw);
+            try{localStorage.setItem('f1BgmPath',rel);localStorage.setItem('raceBgmPath',rel);}catch(_){}
+            addBgmTracksFree([{src:rel,name:labelFree(rel),served:!/^https?:\/\//i.test(rel)}],'direct path');
+            setBgmStatusFree('직접 경로 추가 완료 · '+labelFree(rel),'ready');
+            if(state==='menu')playBgmFree(true,'manual-path');
+          },{capture:true,passive:false});
+        }
+      }
+      let badge=$free('mobileBuildBadgeFinal')||$free('currentVersionBadge');
+      if(!badge){
+        badge=document.createElement('div');
+        badge.id='mobileBuildBadgeFinal';
+        badge.style.cssText='margin:6px auto 0;color:#7f93a4;font-size:8.5px;letter-spacing:.7px;text-align:center;';
+        const btn=$free('btnStart');if(btn&&btn.parentNode)btn.parentNode.insertBefore(badge,btn);
+      }
+      badge.textContent=BUILD_FREE+' · free-name BGM · thermal mode';
+    }catch(_){}
+  }
+
+  /* Menu setting lock. */
+  function readPrefsFree(){try{return JSON.parse(localStorage.getItem(MENU_PREF_KEY_FREE)||'{}')||{};}catch(_){return {};}}
+  function writePrefsFree(p){try{localStorage.setItem(MENU_PREF_KEY_FREE,JSON.stringify(p||{}));}catch(_){ }}
+  function cssEscFree(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
+  function collectPrefsFree(){
+    const root=$free('startOverlay')||document;
+    const p=readPrefsFree();
+    for(const el of Array.from(root.querySelectorAll('input,select,textarea'))){
+      if(!el||el.type==='file'||el.id==='bgmFile')continue;
+      const k=el.name&&el.type==='radio'?'radio:'+el.name:(el.id?'id:'+el.id:null);
+      if(!k)continue;
+      if(el.type==='radio'){if(el.checked)p[k]=el.value;}
+      else if(el.type==='checkbox')p[k]=!!el.checked;
+      else p[k]=el.value;
+    }
+    writePrefsFree(p);
+  }
+  function restorePrefsFree(){
+    const root=$free('startOverlay')||document;
+    const p=readPrefsFree();
+    for(const [k,v] of Object.entries(p)){
+      try{
+        if(k==='radio:trackChoice')continue;
+        if(k.startsWith('radio:')){
+          const name=k.slice(6);
+          const el=root.querySelector('input[name="'+cssEscFree(name)+'"][value="'+cssEscFree(String(v))+'"]');
+          if(el)el.checked=true;
+        }else if(k.startsWith('id:')){
+          const id=k.slice(3),el=$free(id);
+          if(!el||el.type==='file')continue;
+          if(el.type==='checkbox')el.checked=!!v;
+          else if(el.tagName==='SELECT'){
+            if(Array.from(el.options).some(o=>o.value===String(v)))el.value=String(v);
+          }else el.value=String(v);
+        }
+      }catch(_){}
+    }
+    try{if(typeof updateAICountLabel==='function')updateAICountLabel();if(typeof updateTeamPalette==='function')updateTeamPalette();if(typeof updateVehicleClassUI==='function')updateVehicleClassUI();}catch(_){}
+  }
+  function installMenuLockFree(){
+    const root=$free('startOverlay');if(!root||root.dataset.finalFreePrefs==='1')return;
+    root.dataset.finalFreePrefs='1';
+    root.addEventListener('change',collectPrefsFree,{capture:true,passive:true});
+    root.addEventListener('input',e=>{const el=e.target;if(el&&el.name!=='trackChoice')collectPrefsFree();},{capture:true,passive:true});
+    Array.from(root.querySelectorAll('input[name="trackChoice"]')).forEach(el=>{
+      for(const ev of ['pointerdown','touchstart','mousedown','click'])el.addEventListener(ev,collectPrefsFree,{capture:true,passive:true});
+    });
+  }
+
+  /* Gyro: show sensitivity and zero calibration only, then apply direct smooth steering. */
+  const GyroFree={orient:null,accel:null,center:null,filtered:0,steer:0};
+  function normDegFree(a,b){let d=(Number(a)-Number(b)+540)%360-180;return Number.isFinite(d)?d:0;}
+  function screenSignFree(){
+    const a=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+    return (a===-90||a===270)?-1:1;
+  }
+  function rollFromOrientFree(s){
+    if(!s)return null;
+    const beta=Number(s.beta),gamma=Number(s.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma)||Math.hypot(beta,gamma)<5)return null;
+    return {angle:Math.atan2(gamma,beta)*180/Math.PI,t:s.t||nowFree()};
+  }
+  function rollFromAccelFree(s){
+    if(!s)return null;
+    const x=Number(s.x)||0,y=Number(s.y)||0;
+    if(Math.hypot(x,y)<0.85)return null;
+    return {angle:Math.atan2(x,y)*180/Math.PI,t:s.t||nowFree()};
+  }
+  function currentRollFree(){
+    const o=rollFromOrientFree(GyroFree.orient||(IOS_FREE&&IOS_FREE.orientationSample));
+    const a=rollFromAccelFree(GyroFree.accel||(IOS_FREE&&IOS_FREE.precisionAccel));
+    if(o&&a&&Math.abs(normDegFree(o.angle,a.angle))<40)return {angle:o.angle*0.78+a.angle*0.22,t:Math.max(o.t,a.t)};
+    return o||a;
+  }
+  function saveGyroCenterFree(angle,source='manual'){
+    if(!Number.isFinite(angle))return;
+    GyroFree.center={angle,t:nowFree(),source};
+    GyroFree.filtered=0;GyroFree.steer=0;
+    try{localStorage.setItem(GYRO_CENTER_KEY_FREE,JSON.stringify({angle,source,at:Date.now()}));}catch(_){}
+    if(IOS_FREE){IOS_FREE.finalSmoothGyroCenter=angle;IOS_FREE.stableGyroCenterAngle=angle;IOS_FREE.smoothed=0;IOS_FREE.stableGyroSteer=0;}
+    try{if(typeof car!=='undefined'&&car)car.steer=0;}catch(_){}
+    const st=$free('gyroStableStatus');if(st)st.textContent='영점 고정 완료 · '+angle.toFixed(1)+'°';
+  }
+  function loadGyroCenterFree(){try{const v=JSON.parse(localStorage.getItem(GYRO_CENTER_KEY_FREE)||'null');if(v&&Number.isFinite(v.angle)){GyroFree.center={angle:v.angle,t:nowFree(),source:v.source||'stored'};if(IOS_FREE)IOS_FREE.finalSmoothGyroCenter=v.angle;}}catch(_){}}
+  function centerGyroCurrentFree(source='manual'){
+    const r=currentRollFree();
+    if(r&&Number.isFinite(r.angle)){saveGyroCenterFree(r.angle,source);return true;}
+    return false;
+  }
+  async function calibrateGyroFree(){
+    try{if(window.__requestIOSGyroAccess)await window.__requestIOSGyroAccess('gyro-center');}catch(_){}
+    const btn=$free('menuGyroPrecisionCenter')||$free('menuGyroCenter');
+    if(btn)btn.textContent='보정 중…';
+    const a=[];const t0=nowFree();
+    while(nowFree()-t0<520){
+      const r=currentRollFree();if(r&&Number.isFinite(r.angle))a.push(r.angle);
+      await new Promise(res=>setTimeout(res,36));
+    }
+    if(btn)btn.textContent='영점 조정';
+    if(!a.length){const st=$free('gyroStableStatus');if(st)st.textContent='센서 입력 대기 중 · START 후 다시 시도';return false;}
+    let sx=0,sy=0;for(const d of a){const rad=d*Math.PI/180;sx+=Math.cos(rad);sy+=Math.sin(rad);}
+    saveGyroCenterFree(Math.atan2(sy,sx)*180/Math.PI,'manual avg '+a.length);
+    return true;
+  }
+  window.__calibrateStableGyro=calibrateGyroFree;
+  window.__centerIOSGyro=()=>centerGyroCurrentFree('runtime');
+  window.__centerIOSWheelGyro=window.__centerIOSGyro;
+  function simplifyGyroUiFree(){
+    const box=$free('gyroMenuBox');if(!box)return;
+    if(!$free('gyroFreeUiStyle')){
+      const style=document.createElement('style');style.id='gyroFreeUiStyle';
+      style.textContent='#gyroMenuBox .gyroMenuTop,#gyroMenuBox .gyroDiagBox,#gyroMenuBox .gyroSmallToggle,#gyroMenuBox .gyroStabilityBox,#gyroMenuBox .gyroPrecisionBox{display:none!important;}#gyroMenuBox label:has(#menuGyroPrecisionDeadzone),#gyroMenuBox label:has(#menuGyroPrecisionAutoZero),#gyroMenuBox label:has(#menuGyroInvert),#gyroMenuBox label:has(#menuGyroStability),#gyroMenuBox label:has(#menuGyroStabilityStrength){display:none!important;}#menuGyroPrecisionCenter{display:block!important;width:100%;font-size:10px;letter-spacing:.8px;padding:9px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;font-weight:900;box-shadow:none;}';
+      document.head.appendChild(style);
+    }
+    ['menuGyroPrecisionDeadzone','menuGyroPrecisionAutoZero','menuGyroInvert','menuGyroStability','menuGyroStabilityStrength'].forEach(id=>{const e=$free(id);if(e){const p=e.closest('label')||e.parentElement;if(p)p.remove();}});
+    const sens=$free('menuGyroSens');
+    if(sens){sens.disabled=false;try{if(IOS_FREE)IOS_FREE.sensitivity=parseFloat(sens.value)||2.4;}catch(_){}}
+    const note=box.querySelector('.gyroMenuNote');
+    if(note)note.innerHTML='자이로 설정은 감도와 영점 조정만 사용합니다. 폰을 편하게 잡은 상태에서 영점 조정을 누르면 그 자세가 직진 기준이 됩니다.';
+    let btn=$free('menuGyroPrecisionCenter');
+    if(!btn){
+      btn=document.createElement('button');
+      btn.type='button';btn.id='menuGyroPrecisionCenter';btn.textContent='영점 조정';
+      box.appendChild(btn);
+    }else btn.textContent='영점 조정';
+    if(btn.dataset.freeGyroCenter!=='1'){
+      btn.dataset.freeGyroCenter='1';
+      for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}calibrateGyroFree();},{capture:true,passive:false});
+    }
+    let st=$free('gyroStableStatus');
+    if(!st){st=document.createElement('div');st.id='gyroStableStatus';st.style.cssText='margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;';box.appendChild(st);}
+    st.textContent=GyroFree.center?'영점 저장됨 · '+GyroFree.center.angle.toFixed(1)+'°':'START 시 현재 자세가 자동 영점으로 저장됩니다.';
+  }
+  window.addEventListener('deviceorientation',e=>{
+    GyroFree.orient={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:nowFree()};
+    try{if(IOS_FREE){IOS_FREE.orientationSample=GyroFree.orient;IOS_FREE.precisionOrient=GyroFree.orient;}}catch(_){}
+  },true);
+  window.addEventListener('devicemotion',e=>{
+    const a=e.accelerationIncludingGravity;if(!a)return;
+    GyroFree.accel={x:Number(a.x)||0,y:Number(a.y)||0,z:Number(a.z)||0,t:nowFree()};
+    try{if(IOS_FREE)IOS_FREE.precisionAccel=GyroFree.accel;}catch(_){}
+  },true);
+  function rawGyroFree(){
+    const r=currentRollFree();
+    if(!r||!Number.isFinite(r.angle))return 0;
+    if(!GyroFree.center)saveGyroCenterFree(r.angle,'auto-first');
+    let raw=(-normDegFree(r.angle,GyroFree.center.angle)/42.0)*screenSignFree();
+    try{if(IOS_FREE&&IOS_FREE.gyroInvert)raw=-raw;}catch(_){}
+    return clampFree(raw,-1.65,1.65);
+  }
+  window.__iosRawGyroValue=rawGyroFree;
+  window.__iosWheelRawGyroValue=rawGyroFree;
+  function applyGyroSteeringFree(dt){
+    if(!IOS_FREE||!IOS_FREE.gyroEnabled||!(state==='race'||state==='lights'))return;
+    try{if(typeof car==='undefined'||!car)return;}catch(_){return;}
+    dt=clampFree(dt||0.016,0.004,0.060);
+    const r=currentRollFree();if(!r||nowFree()-(r.t||0)>2200)return;
+    const raw=rawGyroFree();
+    const speed=Math.abs(Number(car.vx)||0);
+    const top=Math.max(42,Number(P&&P.topSpeed)||78);
+    const speedRel=clampFree(speed/top,0,1);
+    const rateLimit=lerpFree(18,11,speedRel);
+    GyroFree.filtered+=clampFree(raw-GyroFree.filtered,-rateLimit*dt,rateLimit*dt);
+    GyroFree.filtered=lerpFree(GyroFree.filtered,raw,1-Math.exp(-dt*lerpFree(20,13.5,speedRel)));
+    let wheel=GyroFree.filtered;
+    if(Math.abs(wheel)<0.004)wheel=0;
+    const uiSens=clampFree(parseFloat(($free('menuGyroSens')&&$free('menuGyroSens').value)||(IOS_FREE&&IOS_FREE.sensitivity)||2.4),0.7,6.0);
+    const target=clampFree(-wheel*clampFree(0.25+uiSens*0.315,0.5,1.55)*lerpFree(1,0.92,speedRel),-1,1);
+    GyroFree.steer=lerpFree(GyroFree.steer,target,1-Math.exp(-dt*lerpFree(19,13,speedRel)));
+    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*3,5.8):5.8;
+    const steerRate=lerpFree(steerRateBase,Math.max(5,steerRateBase*0.86),speedRel);
+    car.steer+=clampFree(GyroFree.steer-car.steer,-steerRate*dt,steerRate*dt);
+    if(Math.abs(GyroFree.steer)<0.006&&Math.abs(car.steer)<0.012)car.steer=0;
+    try{IOS_FREE.smoothed=GyroFree.steer;IOS_FREE.stableGyroSteer=GyroFree.steer;IOS_FREE.precisionRaw=raw;IOS_FREE.precisionSource='free-final-smooth';}catch(_){}
+  }
+  if(typeof updateInputs==='function'&&!updateInputs.__freeFinalGyro20260630){
+    const oldUpdateInputsFree=updateInputs;
+    updateInputs=function(dt){
+      const use=!!(IOS_FREE&&IOS_FREE.gyroEnabled&&(state==='race'||state==='lights'));
+      if(use){
+        const saved=IOS_FREE.gyroEnabled;
+        IOS_FREE.gyroEnabled=false;
+        try{oldUpdateInputsFree.apply(this,arguments);}finally{IOS_FREE.gyroEnabled=saved;}
+        applyGyroSteeringFree(dt||0.016);
+      }else return oldUpdateInputsFree.apply(this,arguments);
+    };
+    updateInputs.__freeFinalGyro20260630=true;
+  }
+  const oldPrepareFree=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(){
+    let r=true;
+    if(oldPrepareFree)r=await oldPrepareFree.apply(this,arguments);
+    if(IOS_FREE&&IOS_FREE.gyroEnabled&&!GyroFree.center){
+      if(!centerGyroCurrentFree('start-current')){
+        setTimeout(()=>centerGyroCurrentFree('start-delayed'),240);
+        setTimeout(()=>centerGyroCurrentFree('start-late'),740);
       }
     }
-    const box=document.querySelector('.musicBox');
-    if(box){
-      qsa('.licenseNote,.finalBgmPathNote,.robustBgmPathNote',box).forEach(n=>n.style.display='none');
-      let note=box.querySelector('.noJsonBgmPathNote');
-      if(!note){note=document.createElement('div');note.className='noJsonBgmPathNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.42;';box.appendChild(note);}
-      note.innerHTML='JSON은 필수가 아닙니다. <b>repo/index.html</b> 옆에 <b>bgm/race.mp3</b> 또는 <b>bgm/bgm.mp3</b>로 올리면 바로 찾습니다. 파일명이 다르면 <b>index.html?bgm=bgm/파일명.mp3</b>로 직접 지정할 수도 있습니다.';
+    return r;
+  };
+
+  /* MUTE: no repeated per-frame WebAudio writes. */
+  function setGlobalMutedFree(on,show=true){
+    on=!!on;
+    window.__f1FinalGlobalMuted=on;
+    window.__f1FastGlobalMuted=on;
+    window.__allGameSoundMuted=on;
+    window.__f1GlobalSoundMuted=on;
+    try{if(typeof SND!=='undefined'&&SND)SND.muted=on;}catch(_){}
+    const a=audioElFree();
+    if(on){
+      zeroPlayAudioOnceFree();
+      try{if(a){a.pause();a.muted=true;}}catch(_){}
+      try{if(typeof SND!=='undefined'&&SND&&SND.master)setGainOnceFree(SND.master,0);}catch(_){}
+    }else{
+      try{if(typeof initAudio==='function')initAudio();if(typeof SND!=='undefined'&&SND&&SND.master)setGainOnceFree(SND.master,0.96);}catch(_){}
+      try{if(a){a.muted=false;a.volume=clampFree(bgmVolumeFree()*0.95,0,1);}}catch(_){}
+      setTimeout(()=>{if(state!=='menu')playBgmFree(false,'unmute');},100);
     }
-    const sel=$('bgmTrack');
-    if(sel&&sel.dataset.noJsonThermalSelect!=='1'){
-      sel.dataset.noJsonThermalSelect='1';
-      sel.addEventListener('change',()=>{try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);const src=selectedSource(sel.value);if(src)localStorage.setItem('f1BgmPath',src.src);}catch(_){ }try{if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playSelectedBgm(state==='menu','select');}catch(_){ }},{capture:true,passive:true});
-    }
-    const preview=$('bgmPreview');
-    if(preview&&preview.dataset.noJsonThermalPreview!=='1'){
-      preview.dataset.noJsonThermalPreview='1';
-      preview.addEventListener('click',e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }const a=bgmAudioEl();if(a&&a.src&&!a.paused){stopSelectedBgm('미리듣기 정지 · '+selectedLabel());return;}try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;playSelectedBgm(true,'preview');}catch(_){ }},{capture:true,passive:false});
-    }
+    const b=$free('tMute');
+    if(b){b.textContent=on?'MUTED':'MUTE';b.classList.toggle('on',on);}
+    if(show){try{if(typeof showMsg==='function')showMsg(on?'MUTED':'SOUND ON','',560);}catch(_){}}
   }
-
-  try{
-    const oldStartRace=startRace;
-    if(typeof oldStartRace==='function'&&!oldStartRace.__thermalFastMuteNoJsonBgm){
-      startRace=function(){const r=oldStartRace.apply(this,arguments);applyThermalRendererBudget();if(!window.__f1FastGlobalMuted&&!window.__allGameSoundMuted)setTimeout(()=>playSelectedBgm(false,'raceStart'),160);return r;};
-      startRace.__thermalFastMuteNoJsonBgm=true;
-    }
-  }catch(_){ }
-  try{
-    const oldMenu=goToStartMenu;
-    if(typeof oldMenu==='function'&&!oldMenu.__thermalFastMuteNoJsonBgm){
-      goToStartMenu=function(){const r=oldMenu.apply(this,arguments);stopSelectedBgm('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');applyThermalRendererBudget();return r;};
-      goToStartMenu.__thermalFastMuteNoJsonBgm=true;
-    }
-  }catch(_){ }
-
-  function boot(){writeBuildBadge();installBgmUi();bindFastMuteControls();applyThermalRendererBudget();}
-  boot();
-  for(const d of [150,550,1300,2800])setTimeout(boot,d);
-  // Low-cost automatic path check: fixed filenames and optional manifest only. Full GitHub tree search runs only when BGM 검색 is pressed.
-  setTimeout(()=>refreshOptimizedBgm(false),1200);
-})();
-/* END IPHONE THERMAL / FAST MUTE / NO-JSON BGM FINAL PATCH */
-
-/* FINAL UI VISIBILITY FIX — direct BGM path controls must override older hidden CSS. */
-(function(){
-  if(window.__finalBgmManualVisibilityFix20260630)return;
-  window.__finalBgmManualVisibilityFix20260630=true;
-  const style=document.createElement('style');
-  style.textContent='#bgmManualPathRow{display:grid!important;grid-template-columns:minmax(160px,1fr) auto!important;gap:7px!important;margin-top:8px!important;}#bgmManualPath{display:block!important;}#bgmManualAdd{display:block!important;visibility:visible!important;opacity:1!important;}';
-  document.head.appendChild(style);
-})();
-
-/* FINAL DIRECT BGM PATH + RENDER THROTTLE PATCH — 2026-06-30 */
-(function(){
-  if(window.__finalDirectBgmAndRenderThrottle20260630)return;
-  window.__finalDirectBgmAndRenderThrottle20260630=true;
-  const $=id=>document.getElementById(id);
-  function isMobile(){try{return !!(typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE);}catch(_){return /iP(hone|ad|od)|Android/i.test(navigator.userAgent||'');}}
-  function cleanPath(p){
-    p=String(p||'').trim().replace(/^\.\//,'').replace(/^\/+/, '');
-    if(!p||/^https?:\/\//i.test(p)||/^(javascript|data|blob):/i.test(p))return '';
-    try{return p.split('/').filter(Boolean).map(s=>encodeURIComponent(decodeURIComponent(s))).join('/');}
-    catch(_){return p.split('/').filter(Boolean).map(encodeURIComponent).join('/');}
-  }
-  function addManualUi(){
-    const box=document.querySelector('.musicBox');
-    if(!box||$('bgmManualPathRow'))return;
-    const style=document.createElement('style');
-    style.textContent='#bgmManualPathRow{display:grid!important;grid-template-columns:minmax(160px,1fr) auto!important;gap:7px!important;margin-top:8px!important;}#bgmManualPath{display:block!important;background:#111820!important;color:#e7eef4!important;border:1px solid #3a4a58!important;border-radius:6px!important;padding:8px 9px!important;font-size:10px!important;}#bgmManualAdd{display:block!important;visibility:visible!important;opacity:1!important;font-size:10px!important;letter-spacing:.4px!important;padding:8px 10px!important;border-radius:6px!important;background:#202a34!important;border:1px solid #556675!important;color:#e8eef4!important;}';
-    document.head.appendChild(style);
-    const row=document.createElement('div');
-    row.id='bgmManualPathRow';
-    row.innerHTML='<input id="bgmManualPath" type="text" inputmode="url" placeholder="예: bgm/race.mp3, bgm/bgm.mp3, music/drive.m4a"><button type="button" id="bgmManualAdd">경로 추가</button>';
-    box.appendChild(row);
-    const note=document.createElement('div');
-    note.className='noJsonBgmManualNote';
-    note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.42;';
-    note.innerHTML='JSON 없이 쓸 수 있습니다. 파일명이 자동 후보와 다르면 위 칸에 GitHub Pages 기준 상대경로를 직접 넣으세요.';
-    box.appendChild(note);
-    $('bgmManualAdd').addEventListener('click',e=>{
-      try{e.preventDefault();e.stopPropagation();}catch(_){ }
-      const raw=$('bgmManualPath')&&$('bgmManualPath').value;
-      const rel=cleanPath(raw);
-      if(!/\.(mp3|m4a|aac|wav|ogg|oga|flac)(?:[?#].*)?$/i.test(rel)){
-        const s=$('bgmFileName');if(s){s.textContent='오디오 상대경로를 입력하세요. 예: bgm/race.mp3';s.dataset.state='error';}
+  window.__setAllGameMuted=setGlobalMutedFree;
+  window.__setF1FastGlobalMuted=setGlobalMutedFree;
+  if(typeof updateEngineSound==='function'&&!updateEngineSound.__freeMuteNoLag20260630){
+    const oldEngineFree=updateEngineSound;
+    let lastMenuSilenceFree=0;
+    updateEngineSound=function(){
+      if(isMutedFree())return;
+      if(state==='menu'){
+        const n=nowFree();
+        if(n-lastMenuSilenceFree>1200){lastMenuSilenceFree=n;stopBgmFree();}
         return;
       }
-      try{localStorage.setItem('f1BgmPath',rel);localStorage.setItem('raceBgmPath',rel);}catch(_){ }
-      const s=$('bgmFileName');if(s){s.textContent='직접 경로 저장: '+rel+' · BGM 검색으로 확인합니다.';s.dataset.state='info';}
-      if(typeof window.__refreshSameFolderMusic==='function'){
-        Promise.resolve(window.__refreshSameFolderMusic(true)).then(()=>{try{if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:state==='menu'});}catch(_){ }});
-      }
-    },{capture:true,passive:false});
+      return oldEngineFree.apply(this,arguments);
+    };
+    updateEngineSound.__freeMuteNoLag20260630=true;
   }
-  function installRenderThrottle(){
-    if(!isMobile()||typeof renderSceneWithMirror!=='function'||renderSceneWithMirror.__finalRenderThrottle20260630)return;
-    const old=renderSceneWithMirror;
-    let last=0;
+  if(typeof updateAIEngineSounds==='function'&&!updateAIEngineSounds.__freeMuteNoLag20260630){
+    const oldAiSoundFree=updateAIEngineSounds;
+    updateAIEngineSounds=function(){
+      if(isMutedFree())return;
+      return oldAiSoundFree.apply(this,arguments);
+    };
+    updateAIEngineSounds.__freeMuteNoLag20260630=true;
+  }
+  function bindMuteFree(){
+    const old=$free('tMute');
+    if(old&&old.dataset.freeMuteFinal!=='1'){
+      const b=old.cloneNode(true);
+      b.dataset.freeMuteFinal='1';
+      old.replaceWith(b);
+      const run=e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}setGlobalMutedFree(!isMutedFree(),true);};
+      for(const ev of ['pointerdown','touchstart','mousedown','click'])b.addEventListener(ev,run,{capture:true,passive:false});
+    }
+  }
+  window.addEventListener('keydown',e=>{
+    const k=(typeof keyId==='function')?keyId(e):String(e.key||'').toLowerCase();
+    if(k==='m'){try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){}setGlobalMutedFree(!isMutedFree(),true);}
+  },true);
+
+  /* Thermal budget: lower DPR, no mirror, no shadows, lower mobile loop rate. */
+  function isMobileFree(){try{return !!(typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE);}catch(_){return /iP(hone|ad|od)|Android/i.test(navigator.userAgent||'');}}
+  function applyThermalFree(){
+    if(!isMobileFree())return;
+    try{
+      if(typeof renderer!=='undefined'&&renderer){
+        const dpr=Math.min(window.devicePixelRatio||1,0.68);
+        renderer.setPixelRatio(dpr);
+        renderer.shadowMap.enabled=false;
+      }
+      if(typeof sun!=='undefined'&&sun)sun.castShadow=false;
+      if(typeof scene!=='undefined'&&scene&&!scene.userData.__freeThermalNoShadow){
+        scene.userData.__freeThermalNoShadow=true;
+        scene.traverse(o=>{try{o.castShadow=false;o.receiveShadow=false;}catch(_){}});
+      }
+      const mf=$free('mirrorFrame');if(mf)mf.style.display='none';
+      const hint=$free('teamModeHint');if(hint)hint.textContent='iPhone 발열 저감 모드: 낮은 DPR, 그림자 OFF, 미러 OFF, 24fps 주행 / 6fps 메뉴.';
+    }catch(_){}
+  }
+  if(typeof renderSceneWithMirror==='function'&&!renderSceneWithMirror.__freeThermalNoMirror20260630){
+    const oldRenderMirrorFree=renderSceneWithMirror;
+    let lastRenderFree=0;
     renderSceneWithMirror=function(){
-      const n=performance&&performance.now?performance.now():Date.now();
-      const fps=state==='menu'?10:30;
-      if(n-last<1000/fps)return;
-      last=n;
+      if(!isMobileFree())return oldRenderMirrorFree.apply(this,arguments);
+      const n=nowFree();
+      const fps=state==='menu'?6:24;
+      if(n-lastRenderFree<1000/fps)return;
+      lastRenderFree=n;
       try{
-        const mf=$('mirrorFrame');if(mf)mf.style.display='none';
+        const mf=$free('mirrorFrame');if(mf)mf.style.display='none';
         renderer.setViewport(0,0,innerWidth,innerHeight);
         renderer.setScissorTest(false);
         renderer.render(scene,camera);
-      }catch(_){return old.apply(this,arguments);}
+      }catch(_){return oldRenderMirrorFree.apply(this,arguments);}
     };
-    renderSceneWithMirror.__finalRenderThrottle20260630=true;
+    renderSceneWithMirror.__freeThermalNoMirror20260630=true;
   }
-  function boot(){addManualUi();installRenderThrottle();}
-  boot();
-  for(const d of [300,1200,2600])setTimeout(boot,d);
+  function installLoopThrottleFree(){
+    if(!isMobileFree()||typeof loop!=='function'||loop.__freeThermalLoop20260630)return;
+    let finalLast=nowFree(),finalAcc=0,finalFrame=0,finalBgm=0;
+    loop=function(now){
+      requestAnimationFrame(loop);
+      now=Number(now)||nowFree();
+      const fps=state==='menu'?6:24;
+      if(now-finalFrame<1000/fps)return;
+      finalFrame=now;
+      let dt=(now-finalLast)/1000;finalLast=now;
+      if(dt>0.12)dt=0.12;
+      if(state!=='menu'){
+        try{
+          updateInputs(dt);
+          finalAcc+=dt;
+          while(finalAcc>=P.dt){
+            physStep(P.dt);
+            updateAI(P.dt);
+            resolveVehicleCollisions(P.dt);
+            finalAcc-=P.dt;
+          }
+          aiCollideAndRender(dt);
+          updateVisuals(dt);
+          updatePitCrew(dt);
+          updatePitGuidanceVisuals(dt);
+          updateCamera(dt);
+          updateEngineSound();
+          if(typeof drawHud==='function')drawHud();
+        }catch(err){try{console.warn('thermal loop fallback',err);}catch(_){}}
+      }else{
+        if(!isMutedFree()&&now-finalBgm>1100){finalBgm=now;try{updateBackgroundMusic(1);}catch(_){}}
+      }
+      renderSceneWithMirror();
+    };
+    loop.__freeThermalLoop20260630=true;
+  }
+  if(typeof drawHud==='function'&&!drawHud.__freeThermalHud20260630){
+    const oldHudFree=drawHud;
+    let lastHudFree=0;
+    drawHud=function(){
+      if(isMobileFree()&&state!=='menu'){
+        const n=nowFree();if(n-lastHudFree<120)return;lastHudFree=n;
+      }
+      return oldHudFree.apply(this,arguments);
+    };
+    drawHud.__freeThermalHud20260630=true;
+  }
+
+  /* State wrappers. */
+  if(typeof goToStartMenu==='function'&&!goToStartMenu.__freeFinalMenu20260630){
+    const oldMenuFree=goToStartMenu;
+    goToStartMenu=function(){
+      collectPrefsFree();
+      const r=oldMenuFree.apply(this,arguments);
+      restorePrefsFree();
+      stopBgmFree('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');
+      applyThermalFree();
+      return r;
+    };
+    goToStartMenu.__freeFinalMenu20260630=true;
+  }
+  if(typeof startRace==='function'&&!startRace.__freeFinalStart20260630){
+    const oldStartFree=startRace;
+    startRace=function(){
+      collectPrefsFree();
+      if(IOS_FREE&&IOS_FREE.gyroEnabled&&!GyroFree.center)centerGyroCurrentFree('race-start');
+      const r=oldStartFree.apply(this,arguments);
+      applyThermalFree();
+      try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){}
+      if(!isMutedFree())setTimeout(()=>playBgmFree(false,'race-start'),170);
+      return r;
+    };
+    startRace.__freeFinalStart20260630=true;
+  }
+
+  function bootFree(){
+    loadGyroCenterFree();
+    installBgmUiFree();
+    simplifyGyroUiFree();
+    installMenuLockFree();
+    restorePrefsFree();
+    bindMuteFree();
+    applyThermalFree();
+    installLoopThrottleFree();
+  }
+  bootFree();
+  for(const d of [120,500,1200,2600])setTimeout(bootFree,d);
+  setTimeout(()=>refreshBgmFree(false),900);
+  window.addEventListener('beforeunload',collectPrefsFree,{capture:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){try{stopBgmFree();}catch(_){}}},{passive:true});
 })();
+/* END FINAL FREE-NAME GITHUB BGM + IPHONE THERMAL PATCH — 2026-06-30 */
 
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
