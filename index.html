@@ -14931,6 +14931,613 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 })();
 /* END SIMPLE AUDIO + STABLE GYRO ZERO PATCH */
 
+
+/* ============================================================
+   FINAL REQUEST PATCH — 2026-06-30
+   - Smooth steering-wheel gyro for iPhone landscape-left play.
+   - No large center dead-zone or in-race auto-zero drift.
+   - Hard-stops all play-side audio when returning to the start screen.
+   - Rebuilds GitHub same-folder BGM detection/playback.
+   - Locks start-menu settings so a map reload cannot mutate unrelated options.
+   ============================================================ */
+(function installFinalRequestPatch20260630(){
+  if(window.__finalRequestPatch20260630)return;
+  window.__finalRequestPatch20260630=true;
+
+  const FINAL_BUILD='v2026.06.30-smooth-gyro-audio-menu-lock';
+  const SAME_PREFIX='samefolder:';
+  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
+  const PREF_KEY='f1FinalLockedStartPrefs_20260630_v1';
+  const GYRO_CENTER_KEY='f1FinalSmoothGyroCenter_20260630_v1';
+  const $=id=>document.getElementById(id);
+  const clampF=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const lerpF=(a,b,t)=>a+(b-a)*clampF(t,0,1);
+  const nowF=()=>performance&&performance.now?performance.now():Date.now();
+  const IOS=window.IOS_APP_INPUT||((typeof IOS_APP_INPUT!=='undefined')?IOS_APP_INPUT:null);
+
+  function setStatus(text,state='info'){
+    try{if(typeof setBgmStatus==='function')setBgmStatus(text,state);}
+    catch(_){const e=$('bgmFileName');if(e){e.textContent=text;e.dataset.state=state;}}
+  }
+  function updateBuildBadge(){
+    try{
+      const card=document.querySelector('#startOverlay .card');
+      if(!card)return;
+      let v=$('currentVersionBadge');
+      if(!v){
+        v=document.createElement('div');
+        v.id='currentVersionBadge';
+        v.style.cssText='margin:2px 0 12px;color:#8fa5b6;font-size:10px;letter-spacing:1.4px;text-align:center;font-weight:800;';
+        const sub=card.querySelector('.sub');
+        if(sub&&sub.parentNode)sub.parentNode.insertBefore(v,sub.nextSibling);else card.prepend(v);
+      }
+      v.textContent='CURRENT BUILD · '+FINAL_BUILD;
+      window.__currentMobileBuildVersion=FINAL_BUILD;
+    }catch(_){ }
+  }
+
+  /* ---------- Start-menu setting lock: track changes may reload, but unrelated settings are restored. ---------- */
+  function readPrefs(){try{return JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(_){return {};}}
+  function writePrefs(p){try{localStorage.setItem(PREF_KEY,JSON.stringify(p||{}));}catch(_){ }}
+  function escCss(v){return (window.CSS&&CSS.escape)?CSS.escape(String(v)):String(v).replace(/[\\"]/g,'\\$&');}
+  function prefKey(el){
+    if(!el||el.type==='file'||el.id==='bgmFile')return null;
+    if(el.name&&el.type==='radio')return 'radio:'+el.name;
+    if(el.id)return 'id:'+el.id;
+    return null;
+  }
+  function collectMenuPrefs(){
+    const root=$('startOverlay')||document;
+    const p=readPrefs();
+    for(const el of Array.from(root.querySelectorAll('input,select,textarea'))){
+      const k=prefKey(el);if(!k)continue;
+      if(el.type==='radio'){
+        if(el.checked)p[k]=el.value;
+      }else if(el.type==='checkbox')p[k]=!!el.checked;
+      else p[k]=el.value;
+    }
+    const ai=$('optAICount');if(ai)p['id:optAICount']=String(parseInt(ai.value,10)||0);
+    const cls=document.querySelector('input[name="vehicleClass"]:checked');
+    const team=$('teamSelect');
+    try{
+      if(typeof storageSet==='function'){
+        if(cls)storageSet('raceClass',cls.value);
+        if(ai)storageSet('raceAI',String(parseInt(ai.value,10)||0));
+        if(team&&cls)storageSet('raceTeam_'+cls.value,team.value);
+        const fmt=document.querySelector('input[name="raceFormat"]:checked');if(fmt)storageSet('raceFormat',fmt.value);
+        const dmg=document.querySelector('input[name="raceMode"]:checked');if(dmg)storageSet('raceMode',dmg.value);
+      }
+    }catch(_){ }
+    writePrefs(p);
+    return p;
+  }
+  function restoreMenuPrefs(){
+    const p=readPrefs();
+    const root=$('startOverlay')||document;
+    let classRestored=false;
+    try{
+      const cls=p['radio:vehicleClass'];
+      if(cls){const el=root.querySelector('input[name="vehicleClass"][value="'+escCss(cls)+'"]');if(el){el.checked=true;classRestored=true;}}
+      if(classRestored&&typeof updateVehicleClassUI==='function')updateVehicleClassUI();
+    }catch(_){ }
+    for(const [key,val] of Object.entries(p)){
+      try{
+        if(key.startsWith('radio:')){
+          const name=key.slice(6);
+          if(name==='trackChoice')continue;
+          const el=root.querySelector('input[name="'+escCss(name)+'"][value="'+escCss(String(val))+'"]');
+          if(el)el.checked=true;
+        }else if(key.startsWith('id:')){
+          const id=key.slice(3),el=$(id);
+          if(!el||el.type==='file')continue;
+          if(el.type==='checkbox')el.checked=!!val;
+          else if(el.tagName==='SELECT'){
+            if(Array.from(el.options).some(o=>o.value===String(val)))el.value=String(val);
+          }else el.value=String(val);
+        }
+      }catch(_){ }
+    }
+    try{
+      if(typeof updateAICountLabel==='function')updateAICountLabel();
+      if(typeof updateTeamPalette==='function')updateTeamPalette();
+      if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);
+    }catch(_){ }
+  }
+  function installMenuLock(){
+    const root=$('startOverlay');if(!root||root.dataset.finalMenuLock20260630==='1')return;
+    root.dataset.finalMenuLock20260630='1';
+    root.addEventListener('change',e=>{
+      const el=e.target;
+      if(el&&el.name==='trackChoice'){
+        collectMenuPrefs();
+        return;
+      }
+      collectMenuPrefs();
+    },{capture:true,passive:true});
+    root.addEventListener('input',e=>{
+      const el=e.target;if(el&&el.name==='trackChoice')return;
+      collectMenuPrefs();
+    },{capture:true,passive:true});
+    for(const el of Array.from(root.querySelectorAll('input[name="trackChoice"]'))){
+      for(const ev of ['pointerdown','touchstart','mousedown','click']){
+        el.addEventListener(ev,()=>collectMenuPrefs(),{capture:true,passive:true});
+      }
+    }
+  }
+
+  /* ---------- Audio: one owner for BGM, and hard silence on menu. ---------- */
+  function mediaMuted(){
+    return !!(window.__f1GlobalSoundMuted||window.__allGameSoundMuted||window.__wholeGameMuted||(typeof SND!=='undefined'&&SND.muted));
+  }
+  function safeSetGain(node,value,t=0.045){
+    try{if(node&&node.gain){if(typeof setAudioParam==='function')setAudioParam(node.gain,value,t);else node.gain.value=value;}}catch(_){ }
+  }
+  function silenceRaceAudio(note){
+    try{
+      if(typeof BGM!=='undefined'){
+        BGM.previewInMenu=false;
+        BGM.externalActive=false;
+        BGM.fallbackNotified=false;
+      }
+    }catch(_){ }
+    try{
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      if(a){a.pause();a.muted=true;}
+    }catch(_){ }
+    try{
+      if(typeof SND!=='undefined'){
+        for(const k of ['eGain','sGain','rGain','crowdGain','crowdRoarGain','crowdBodyGain','crowdCheerGain','bgmGain','bgmExternalGain','extFanGain'])safeSetGain(SND[k],0,0.035);
+        if(Array.isArray(SND.ai))for(const v of SND.ai)safeSetGain(v&&v.gain,0,0.035);
+        if(Array.isArray(SND.aiEngines))for(const v of SND.aiEngines)safeSetGain(v&&v.gain,0,0.035);
+      }
+    }catch(_){ }
+    if(note)setStatus(note,'paused');
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function normalizeAudioPath(path){
+    path=String(path||'').trim().replace(/^\.\//,'');
+    if(!path||/^https?:\/\//i.test(path)||path.startsWith('data:')||path.startsWith('blob:'))return '';
+    const parts=path.split('/').filter(Boolean);
+    if(parts.length!==1)return ''; // Same folder only.
+    const one=parts[0];
+    if(!AUDIO_RE.test(one))return '';
+    return encodeURIComponent(decodeURIComponent(one)).replace(/%20/g,'%20');
+  }
+  function humanTrackName(name){
+    try{name=decodeURIComponent(String(name||''));}catch(_){name=String(name||'');}
+    return name.split('/').pop().replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
+  }
+  function uniqueTracks(list){
+    const seen=new Set(),out=[];
+    for(const item of list||[]){
+      const src=normalizeAudioPath(item&&item.src?item.src:item);
+      if(!src)continue;
+      const key=src.toLowerCase();
+      if(seen.has(key))continue;
+      seen.add(key);out.push({src,name:(item&&item.name)||humanTrackName(src)});
+    }
+    return out;
+  }
+  async function fetchJson(url){try{const r=await fetch(url,{cache:'no-store',headers:{'Accept':'application/json'}});if(!r.ok)return null;return await r.json();}catch(_){return null;}}
+  function parseManifest(data){
+    if(!data)return [];
+    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:[])));
+    return uniqueTracks(arr.map(x=>typeof x==='string'?{src:x}:{src:x.src||x.file||x.path||x.url||'',name:x.name||x.title||humanTrackName(x.src||x.file||x.path||x.url||'')}));
+  }
+  function inferGithubRepo(){
+    const host=String(location.hostname||'').toLowerCase();
+    if(!host.endsWith('.github.io'))return null;
+    const owner=host.replace(/\.github\.io$/,'');
+    const rawParts=location.pathname.split('/').filter(Boolean).map(x=>{try{return decodeURIComponent(x);}catch(_){return x;}});
+    let repo=owner+'.github.io',dirParts=rawParts.slice();
+    if(rawParts.length&&rawParts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(rawParts[0])){repo=rawParts[0];dirParts=rawParts.slice(1);}
+    if(dirParts.length&&/\.[a-z0-9]{2,8}$/i.test(dirParts[dirParts.length-1]))dirParts.pop();
+    return {owner,repo,dir:dirParts.join('/')};
+  }
+  async function githubBranches(info){
+    const out=[];
+    try{const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));if(repo&&repo.default_branch)out.push(repo.default_branch);}catch(_){ }
+    for(const b of ['gh-pages','main','master'])if(!out.includes(b))out.push(b);
+    return out;
+  }
+  function relFromGithubPath(path,dir){
+    let p=String(path||'').replace(/^\/+/, '');
+    const d=String(dir||'').replace(/^\/+|\/+$/g,'');
+    if(d&&p.toLowerCase().startsWith(d.toLowerCase()+'/'))p=p.slice(d.length+1);
+    if(p.includes('/'))return '';
+    return normalizeAudioPath(p);
+  }
+  async function loadGithubFolderTracks(){
+    const info=inferGithubRepo();
+    if(!info)return {tracks:[],source:''};
+    const branches=await githubBranches(info);
+    const dir=String(info.dir||'').replace(/^\/+|\/+$/g,'');
+    for(const br of branches){
+      const path=dir?dir.split('/').map(encodeURIComponent).join('/'):'';
+      const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+path+'?ref='+encodeURIComponent(br);
+      const data=await fetchJson(url);
+      if(Array.isArray(data)){
+        const tracks=uniqueTracks(data.filter(x=>x&&x.type==='file'&&AUDIO_RE.test(x.name||'')).map(x=>({src:x.name,name:humanTrackName(x.name)})));
+        if(tracks.length)return {tracks,source:'GitHub '+br};
+      }
+    }
+    for(const br of branches){
+      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
+      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
+      const prefix=dir?dir+'/':'';
+      const tracks=uniqueTracks(arr.filter(x=>x&&x.type==='blob'&&AUDIO_RE.test(x.path||'')&&(!prefix||String(x.path).startsWith(prefix))&&String(x.path).slice(prefix.length).indexOf('/')<0).map(x=>({src:relFromGithubPath(x.path,dir),name:humanTrackName(x.path)})));
+      if(tracks.length)return {tracks,source:'GitHub tree '+br};
+    }
+    return {tracks:[],source:''};
+  }
+  async function loadSameFolderTracks(){
+    for(const m of ['music_manifest.json','music-list.json','bgm_manifest.json','audio_manifest.json','tracks.json']){
+      const tracks=parseManifest(await fetchJson(m));
+      if(tracks.length)return {tracks,source:m};
+    }
+    return await loadGithubFolderTracks();
+  }
+  function pruneBgmSelect(){
+    const sel=$('bgmTrack');if(!sel)return;
+    for(const child of Array.from(sel.children)){
+      if(child.tagName==='OPTGROUP'){
+        if(child.dataset.finalGithub!=='1'&&child.dataset.simpleGithub!=='1'&&child.dataset.sameFolder!=='1')child.remove();
+      }else if(child.tagName==='OPTION'){
+        const keep=child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX)||child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1';
+        if(!keep)child.remove();
+      }
+    }
+    if(!Array.from(sel.options).length){
+      const ph=document.createElement('option');ph.value='';ph.dataset.placeholder='1';ph.textContent='GitHub 같은 폴더 음악을 검색하세요';sel.appendChild(ph);
+    }
+  }
+  function addSameFolderTracks(tracks,source){
+    const sel=$('bgmTrack');if(!sel)return 0;
+    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
+    for(const g of Array.from(sel.querySelectorAll('optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]')))g.remove();
+    for(const o of Array.from(sel.querySelectorAll('option'))){if(!(o.dataset.placeholder==='1'||o.dataset.githubPlaceholder==='1'))o.remove();}
+    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
+    const clean=uniqueTracks(tracks);
+    if(!clean.length){pruneBgmSelect();return 0;}
+    const group=document.createElement('optgroup');group.label='GitHub 같은 폴더 · '+(source||'audio');group.dataset.finalGithub='1';group.dataset.sameFolder='1';
+    clean.forEach((t,i)=>{
+      const key=SAME_PREFIX+'final_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,42);
+      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'samefolder'};
+      const opt=document.createElement('option');opt.value=key;opt.textContent=t.name;opt.dataset.baseLabel=t.name;opt.dataset.sameFolder='1';group.appendChild(opt);
+    });
+    sel.appendChild(group);
+    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
+    if(remembered&&Array.from(sel.options).some(o=>o.value===remembered))sel.value=remembered;
+    else sel.value=group.children[0].value;
+    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }
+    pruneBgmSelect();
+    return clean.length;
+  }
+  async function refreshSameFolderMusicFinal(manual=false){
+    pruneBgmSelect();
+    if(manual)setStatus('GitHub 같은 폴더 음악을 검색 중입니다…','info');
+    const res=await loadSameFolderTracks();
+    const n=addSameFolderTracks(res.tracks,res.source);
+    if(n>0)setStatus('GitHub 같은 폴더 음악 '+n+'곡 사용 가능 · '+bgmChoiceLabelFinal(),'ready');
+    else setStatus('같은 폴더 음원을 찾지 못했습니다. index.html과 같은 위치에 mp3/m4a/wav/ogg 파일 또는 music_manifest.json을 올려 주세요.','error');
+    return n;
+  }
+  window.__refreshSameFolderMusic=refreshSameFolderMusicFinal;
+
+  function sameFolderSource(choice){
+    try{
+      if(!choice&&typeof bgmChoice==='function')choice=bgmChoice();
+      if(typeof BGM!=='undefined'&&choice&&String(choice).startsWith(SAME_PREFIX)&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
+        const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||bgmChoiceLabelFinal(choice),kind:'samefolder'};
+      }
+    }catch(_){ }
+    return null;
+  }
+  function firstSameChoice(){const sel=$('bgmTrack');return sel?((Array.from(sel.options).find(o=>String(o.value||'').startsWith(SAME_PREFIX))||{}).value||''):'';}
+  function bgmChoiceLabelFinal(choice){
+    const sel=$('bgmTrack');choice=choice||(sel&&sel.value)||'';
+    const opt=sel?Array.from(sel.options).find(o=>o.value===choice):null;
+    return opt?(opt.dataset.baseLabel||opt.textContent||'GitHub BGM').replace(/\s+✓$/,''):'GitHub BGM';
+  }
+  try{
+    bgmChoice=function(){const sel=$('bgmTrack');if(!sel)return '';let v=sel.value;if(!String(v||'').startsWith(SAME_PREFIX)){const f=firstSameChoice();if(f){sel.value=f;v=f;}}return v||'';};
+    bgmChoiceLabel=function(choice){return bgmChoiceLabelFinal(choice);};
+    resolveBgmSource=function(choice){return sameFolderSource(choice||bgmChoice());};
+  }catch(_){ }
+  function bgmWanted(preview=false){
+    try{return !!(typeof bgmEnabled==='function'?bgmEnabled():($('optBgm')&&$('optBgm').checked))&&!!sameFolderSource()&&!mediaMuted()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));}catch(_){return false;}
+  }
+  function ensureAudioRoute(){
+    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(!a)return null;
+    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+    try{if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
+    try{a.playsInline=true;a.setAttribute('playsinline','');a.preload='auto';a.loop=true;}catch(_){ }
+    try{
+      if(typeof SND!=='undefined'&&SND.ctx&&!SND.finalBgmMediaSource){
+        SND.finalBgmMediaSource=SND.ctx.createMediaElementSource(a);
+        SND.finalBgmGain=SND.ctx.createGain();SND.finalBgmGain.gain.value=0;
+        SND.finalBgmMediaSource.connect(SND.finalBgmGain);SND.finalBgmGain.connect(SND.master);
+      }
+    }catch(_){ }
+    return a;
+  }
+  function playSameFolderBgm(reason='play',preview=false){
+    if(preview&&state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
+    const src=sameFolderSource();
+    const a=ensureAudioRoute();
+    if(!a||!src||!bgmWanted(preview)){
+      if(state==='menu'&&!preview){try{if(a)a.pause();}catch(_){ }}
+      if(!src)setStatus('GitHub 같은 폴더 음악을 먼저 검색/선택하세요.','paused');
+      return false;
+    }
+    try{
+      const href=new URL(src.src,document.baseURI).href;
+      if(a.dataset.finalSrc!==href){a.src=src.src;a.dataset.finalSrc=href;a.load();a.currentTime=0;}
+      a.muted=false;
+      a.volume=(typeof SND!=='undefined'&&SND.finalBgmGain)?1:clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95,0,1);
+      if(typeof SND!=='undefined'){
+        safeSetGain(SND.bgmGain,0,0.04);
+        if(SND.finalBgmGain)safeSetGain(SND.finalBgmGain,clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*1.12,0,1.2),0.08);
+      }
+      if(typeof BGM!=='undefined'){
+        BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='final|'+href;
+      }
+      const p=a.play();
+      setStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+src.name,'ready');
+      if(p&&typeof p.then==='function')p.then(()=>{try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }}).catch(()=>setStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
+      return true;
+    }catch(_){setStatus('선택한 GitHub 음원을 재생할 수 없습니다. 파일명과 배포 상태를 확인하세요.','error');return false;}
+  }
+  window.__playSelectedGithubBgm=playSameFolderBgm;
+  try{
+    startBackgroundMusic=function(opts={}){return playSameFolderBgm('startBackgroundMusic',!!(opts&&opts.preview));};
+    pauseBackgroundMusic=function(note){silenceRaceAudio(note||'시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');};
+    fallbackToBuiltInBgm=function(note){silenceRaceAudio(note||'GitHub 같은 폴더 음악만 사용합니다.');};
+    updateBackgroundMusic=function(mul){
+      const a=ensureAudioRoute();
+      const src=sameFolderSource();
+      const should=!!src&&bgmWanted(false);
+      try{if(typeof SND!=='undefined'){safeSetGain(SND.bgmGain,0,0.05);if(SND.finalBgmGain)safeSetGain(SND.finalBgmGain,should&&!a.paused?clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*1.12*(Number(mul)||1),0,1.2):0,0.08);}}catch(_){ }
+      if(a){
+        a.muted=!should;
+        a.volume=(typeof SND!=='undefined'&&SND.finalBgmGain)?1:clampF((typeof bgmVolume==='function'?bgmVolume():0.84)*0.95,0,1);
+        if(should&&a.paused){try{const p=a.play();if(p&&p.catch)p.catch(()=>{});}catch(_){ }}
+        if(!should&&state==='menu'){try{a.pause();}catch(_){ }}
+      }
+      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+    };
+    updateBgmPreviewButton=function(){
+      const b=$('bgmPreview');if(!b)return;
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&sameFolderSource());
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
+      b.classList.toggle('playing',playing);
+    };
+  }catch(_){ }
+  function installMusicEvents(){
+    const sel=$('bgmTrack');
+    if(sel&&sel.dataset.finalMusicBound20260630!=='1'){
+      sel.dataset.finalMusicBound20260630='1';
+      sel.addEventListener('change',()=>{try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ } if(state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;setTimeout(()=>playSameFolderBgm('select-change',state==='menu'),20);},{capture:true,passive:true});
+    }
+    const prev=$('bgmPreview');
+    if(prev&&prev.dataset.finalPreviewBound20260630!=='1'){
+      prev.dataset.finalPreviewBound20260630='1';
+      prev.addEventListener('click',e=>{
+        try{e.preventDefault();e.stopPropagation();}catch(_){ }
+        const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+        if(a&&a.src&&!a.paused){try{a.pause();if(typeof BGM!=='undefined')BGM.previewInMenu=false;updateBgmPreviewButton();}catch(_){ }return;}
+        if(typeof BGM!=='undefined')BGM.previewInMenu=true;
+        playSameFolderBgm('preview',true);
+      },{capture:true,passive:false});
+    }
+    const folder=$('bgmSameFolder');
+    if(folder&&folder.dataset.finalFolderBound20260630!=='1'){
+      folder.dataset.finalFolderBound20260630='1';
+      folder.addEventListener('click',e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }refreshSameFolderMusicFinal(true).then(n=>{if(n>0){if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playSameFolderBgm('manual-refresh',state==='menu');}});},{capture:true,passive:false});
+    }
+  }
+
+  /* ---------- Smooth iPhone gyro steering.  This supersedes all earlier gyro wrappers. ---------- */
+  const G={orient:null,accel:null,center:null,filtered:0,steer:0,lastSampleT:0,centerLocked:false};
+  function normDeg(a,b){let d=(Number(a)-Number(b)+540)%360-180;return Number.isFinite(d)?d:0;}
+  function screenSignFinal(){
+    const a=(screen.orientation&&Number.isFinite(screen.orientation.angle))?screen.orientation.angle:(window.orientation||0);
+    // iPhone default requested here is counter-clockwise 90 degrees.  This sign keeps the existing in-game left/right convention.
+    return (a===-90||a===270)?-1:1;
+  }
+  function rollFromOrient(s){
+    if(!s)return null;
+    const beta=Number(s.beta),gamma=Number(s.gamma);
+    if(!Number.isFinite(beta)||!Number.isFinite(gamma))return null;
+    const strength=Math.hypot(beta,gamma);
+    if(strength<5.0)return null;
+    return {angle:Math.atan2(gamma,beta)*180/Math.PI,strength,source:'orientation',t:s.t||nowF()};
+  }
+  function rollFromAccel(a){
+    if(!a)return null;
+    const x=Number(a.x)||0,y=Number(a.y)||0;
+    const strength=Math.hypot(x,y);
+    if(strength<0.85)return null;
+    return {angle:Math.atan2(x,y)*180/Math.PI,strength:strength*8,source:'gravity',t:a.t||nowF()};
+  }
+  function currentRoll(){
+    const o=rollFromOrient(G.orient||(IOS&&IOS.orientationSample));
+    const a=rollFromAccel(G.accel||(IOS&&IOS.precisionAccel));
+    if(o&&a&&Math.abs(normDeg(o.angle,a.angle))<38)return {angle:o.angle*0.78+a.angle*0.22,strength:o.strength+a.strength*0.12,source:'orientation+gravity',t:Math.max(o.t,a.t)};
+    return o||a;
+  }
+  function saveCenter(angle,source){
+    if(!Number.isFinite(angle))return;
+    G.center={angle,t:nowF(),source:source||'manual'};G.centerLocked=true;
+    try{localStorage.setItem(GYRO_CENTER_KEY,JSON.stringify({angle,source:G.center.source,at:Date.now()}));}catch(_){ }
+    if(IOS){IOS.finalSmoothGyroCenter=angle;IOS.stableGyroCenterAngle=angle;IOS.smoothed=0;IOS.stableGyroSteer=0;}
+    G.filtered=0;G.steer=0;if(car)car.steer=0;
+    const st=$('gyroStableStatus');if(st)st.textContent='CENTER LOCKED · '+angle.toFixed(1)+'°';
+  }
+  function loadCenter(){try{const v=JSON.parse(localStorage.getItem(GYRO_CENTER_KEY)||'null');if(v&&Number.isFinite(v.angle)){G.center={angle:v.angle,t:nowF(),source:v.source||'stored'};G.centerLocked=true;if(IOS)IOS.finalSmoothGyroCenter=v.angle;}}catch(_){ }}
+  function lockCenterFromCurrent(source='current'){
+    const r=currentRoll();
+    if(r&&Number.isFinite(r.angle)){saveCenter(r.angle,source);return true;}
+    return false;
+  }
+  async function calibrateCenter(source='manual'){
+    try{if(window.__requestIOSGyroAccess)await window.__requestIOSGyroAccess(source);}catch(_){ }
+    const btn=$('menuGyroPrecisionCenter');
+    if(btn){btn.textContent='보정 중…';btn.classList.add('calibrating');}
+    const angles=[];const t0=nowF();
+    while(nowF()-t0<560){
+      const r=currentRoll();if(r&&Number.isFinite(r.angle))angles.push(r.angle);
+      await new Promise(res=>setTimeout(res,38));
+    }
+    if(btn){btn.textContent='조향 중앙 보정';btn.classList.remove('calibrating');}
+    if(!angles.length){try{showMsg('GYRO SENSOR NOT READY','warn',900);}catch(_){ }return false;}
+    let sx=0,sy=0;for(const a of angles){const rad=a*Math.PI/180;sx+=Math.cos(rad);sy+=Math.sin(rad);}
+    saveCenter(Math.atan2(sy,sx)*180/Math.PI,source+' avg '+angles.length);
+    try{showMsg('GYRO CENTER LOCKED','',700);}catch(_){ }
+    return true;
+  }
+  window.__calibrateStableGyro=calibrateCenter;
+  window.__centerIOSGyro=function(){lockCenterFromCurrent('runtime-center');};
+  window.__centerIOSWheelGyro=window.__centerIOSGyro;
+  function ensureGyroUi(){
+    const box=$('gyroMenuBox');if(!box)return;
+    let btn=$('menuGyroPrecisionCenter');
+    if(!btn){
+      btn=document.createElement('button');btn.type='button';btn.id='menuGyroPrecisionCenter';btn.textContent='조향 중앙 보정';
+      btn.style.cssText='margin-top:8px;width:100%;font-size:10px;letter-spacing:.8px;padding:8px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;';
+      box.appendChild(btn);
+    }
+    if(btn.dataset.finalGyroCenterBound20260630!=='1'){
+      btn.dataset.finalGyroCenterBound20260630='1';
+      for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }calibrateCenter('manual');},{capture:true,passive:false});
+    }
+    let st=$('gyroStableStatus');
+    if(!st){st=document.createElement('div');st.id='gyroStableStatus';st.className='gyroStableStatus';st.style.cssText='margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;';box.appendChild(st);}
+    st.textContent=G.center?'CENTER LOCKED · '+G.center.angle.toFixed(1)+'°':'START 시 현재 각도가 조향 중앙으로 고정됩니다.';
+    let note=$('gyroFinalNote20260630');
+    if(!note){note=document.createElement('div');note.id='gyroFinalNote20260630';note.style.cssText='margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;';note.textContent='중앙 데드존을 크게 두지 않고, 폰을 돌린 각도를 직접 핸들 각도로 변환합니다. 주행 중 자동 영점 보정은 꺼져 있어 영점이 흔들리지 않습니다.';box.appendChild(note);}
+  }
+  window.addEventListener('deviceorientation',e=>{
+    try{
+      G.orient={alpha:Number(e.alpha),beta:Number(e.beta),gamma:Number(e.gamma),t:nowF()};
+      G.lastSampleT=G.orient.t;
+      if(IOS){IOS.orientationSample=G.orient;IOS.precisionOrient=G.orient;IOS.lastWebT=G.orient.t;}
+    }catch(_){ }
+  },true);
+  window.addEventListener('devicemotion',e=>{
+    try{
+      const a=e.accelerationIncludingGravity;
+      if(a){G.accel={x:Number(a.x)||0,y:Number(a.y)||0,z:Number(a.z)||0,t:nowF()};if(IOS){IOS.precisionAccel=G.accel;IOS.lastMotionT=G.accel.t;}}
+    }catch(_){ }
+  },true);
+  function finalGyroRaw(){
+    const r=currentRoll();
+    if(!r||!Number.isFinite(r.angle))return 0;
+    if(!G.center)saveCenter(r.angle,'auto-first');
+    let raw=(-normDeg(r.angle,G.center.angle)/42.0)*screenSignFinal();
+    if(IOS&&IOS.gyroInvert)raw=-raw;
+    return clampF(raw,-1.65,1.65);
+  }
+  window.__iosRawGyroValue=finalGyroRaw;
+  window.__iosWheelRawGyroValue=finalGyroRaw;
+  function applySmoothGyro(dt){
+    if(!IOS||!IOS.gyroEnabled||!(state==='race'||state==='lights')||!car)return;
+    dt=clampF(dt||0.016,0.004,0.050);
+    const r=currentRoll();
+    if(!r||nowF()-(r.t||0)>2200)return;
+    let raw=finalGyroRaw();
+    const speed=Math.abs(Number(car.vx)||0);
+    const top=Math.max(42,Number(P&&P.topSpeed)||78);
+    const speedRel=clampF(speed/top,0,1);
+    const rateLimit=lerpF(18.0,11.0,speedRel);
+    G.filtered+=clampF(raw-G.filtered,-rateLimit*dt,rateLimit*dt);
+    G.filtered=lerpF(G.filtered,raw,1-Math.exp(-dt*lerpF(20.0,13.5,speedRel)));
+    let wheel=G.filtered;
+    if(Math.abs(wheel)<0.004)wheel=0; // sensor-noise gate only, not a gameplay dead-zone.
+    const uiSens=clampF(parseFloat(($('menuGyroSens')&&$('menuGyroSens').value)||(IOS&&IOS.sensitivity)||2.40),0.70,6.00);
+    const effectiveSens=clampF(0.25+uiSens*0.315,0.50,1.55); // 2.40x ~= direct steering-wheel mapping.
+    const speedCap=lerpF(1.00,0.92,speedRel);
+    const target=clampF(-wheel*effectiveSens*speedCap,-1,1);
+    G.steer=lerpF(G.steer,target,1-Math.exp(-dt*lerpF(19.0,13.0,speedRel)));
+    const steerRateBase=Number.isFinite(P&&P.steerRate)?Math.max(P.steerRate*3.0,5.8):5.8;
+    const steerRate=lerpF(steerRateBase,Math.max(5.0,steerRateBase*0.86),speedRel);
+    car.steer+=clampF(G.steer-car.steer,-steerRate*dt,steerRate*dt);
+    if(Math.abs(G.steer)<0.006&&Math.abs(car.steer)<0.012)car.steer=0;
+    if(IOS){IOS.smoothed=G.steer;IOS.stableGyroSteer=G.steer;IOS.precisionRaw=raw;IOS.precisionSource='final-smooth-wheel';}
+    try{const m=document.querySelector('#gyroMeter i');if(m)m.style.left=(50+clampF(G.steer,-1,1)*48)+'%';}catch(_){ }
+  }
+  if(typeof updateInputs==='function'&&!updateInputs.__finalSmoothGyro20260630){
+    const prev=updateInputs;
+    updateInputs=function(dt){
+      const use=!!(IOS&&IOS.gyroEnabled&&(state==='race'||state==='lights'));
+      if(use){
+        const saved=IOS.gyroEnabled;
+        IOS.gyroEnabled=false;
+        try{prev.apply(this,arguments);}finally{IOS.gyroEnabled=saved;}
+        applySmoothGyro(dt||0.016);
+      }else return prev.apply(this,arguments);
+    };
+    updateInputs.__finalSmoothGyro20260630=true;
+  }
+  const prevPrepare=window.__prepareIOSStartActivation;
+  window.__prepareIOSStartActivation=async function(e){
+    let r=true;
+    if(prevPrepare)r=await prevPrepare.apply(this,arguments);
+    if(IOS&&IOS.gyroEnabled){
+      if(!lockCenterFromCurrent('start-current')){
+        setTimeout(()=>lockCenterFromCurrent('start-delayed'),260);
+        setTimeout(()=>lockCenterFromCurrent('start-late'),760);
+      }
+    }
+    return r;
+  };
+
+  /* ---------- State wrappers. ---------- */
+  if(typeof goToStartMenu==='function'&&!goToStartMenu.__finalAudioMenu20260630){
+    const prev=goToStartMenu;
+    goToStartMenu=function(){
+      collectMenuPrefs();
+      const r=prev.apply(this,arguments);
+      restoreMenuPrefs();
+      silenceRaceAudio('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');
+      return r;
+    };
+    goToStartMenu.__finalAudioMenu20260630=true;
+  }
+  if(typeof startRace==='function'&&!startRace.__finalStartRace20260630){
+    const prev=startRace;
+    startRace=function(){
+      collectMenuPrefs();
+      if(IOS&&IOS.gyroEnabled&&!G.center)lockCenterFromCurrent('race-start');
+      const r=prev.apply(this,arguments);
+      try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){ }
+      setTimeout(()=>playSameFolderBgm('race-start',false),80);
+      setTimeout(()=>playSameFolderBgm('race-start-late',false),600);
+      return r;
+    };
+    startRace.__finalStartRace20260630=true;
+  }
+  if(typeof updateEngineSound==='function'&&!updateEngineSound.__finalMenuSilence20260630){
+    const prev=updateEngineSound;
+    updateEngineSound=function(){
+      if(state==='menu'){silenceRaceAudio();return;}
+      return prev.apply(this,arguments);
+    };
+    updateEngineSound.__finalMenuSilence20260630=true;
+  }
+
+  function boot(){
+    updateBuildBadge();installMenuLock();restoreMenuPrefs();ensureGyroUi();installMusicEvents();pruneBgmSelect();loadCenter();
+  }
+  boot();
+  for(const d of [120,520,1200,2400])setTimeout(boot,d);
+  setTimeout(()=>refreshSameFolderMusicFinal(false),700);
+  window.addEventListener('beforeunload',collectMenuPrefs,{capture:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='menu')silenceRaceAudio();},{passive:true});
+})();
+/* END FINAL REQUEST PATCH — 2026-06-30 */
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
