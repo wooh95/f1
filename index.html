@@ -629,7 +629,7 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       <input type="range" id="optAICount" min="0" max="30" value="5" step="1">
       <span><span id="aiCountLabel">5</span>대</span>
     </div>
-    <div class="modeTitle">GITHUB SAME-FOLDER BGM</div>
+    <div class="modeTitle">GITHUB BGM</div>
     <div class="musicBox">
       <div class="musicRow">
         <label class="musicToggle"><input type="checkbox" id="optBgm" checked> BGM</label>
@@ -643,7 +643,7 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
         <label class="musicVol">VOL <input type="range" id="bgmVolume" min="0" max="100" value="84"></label>
       </div>
       <div id="bgmFileName" data-state="paused">GitHub에 올린 음악 파일만 선택할 수 있습니다.</div>
-      <div class="licenseNote">GitHub Pages에서 index.html과 같은 위치에 올린 MP3/M4A/WAV/OGG 파일만 BGM 목록에 표시됩니다.</div>
+      <div class="licenseNote">권장: index.html 옆 bgm/ 폴더에 음악 파일을 넣고, music_manifest.json을 함께 올리면 가장 확실합니다.</div>
     </div>
     <div class="licenseNote" style="margin-top:10px;text-align:center">Fan-made simulator. Vehicle, film, team and series names are used only for identification; no official affiliation, logos or licensed 3D assets are included.</div>
     <button id="btnStart" class="startFinalButton">START</button>
@@ -15537,6 +15537,762 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='menu')silenceRaceAudio();},{passive:true});
 })();
 /* END FINAL REQUEST PATCH — 2026-06-30 */
+
+/* ============================================================
+   FINAL GYRO UI SIMPLIFICATION + ROBUST GITHUB BGM FINDER — 2026-06-30
+   Requested fixes:
+   - Gyro settings show only sensitivity and zero-center calibration.
+   - Remove visible center-deadzone / auto-zero / invert / stability / permission-test clutter.
+   - Search BGM in current GitHub Pages folder and common audio subfolders; support manifest as the most reliable path.
+   ============================================================ */
+(function installFinalGyroUiAndBgmFinder20260630(){
+  if(window.__finalGyroUiAndBgmFinder20260630)return;
+  window.__finalGyroUiAndBgmFinder20260630=true;
+  const $=id=>document.getElementById(id);
+  const qsa=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
+  const SAME_PREFIX='samefolder:';
+  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
+  const COMMON_AUDIO_DIRS=['','bgm','music','audio','assets/audio','assets/music','sounds','sound'];
+
+  function clampLocal(v,a,b){v=Number(v);return Number.isFinite(v)?Math.max(a,Math.min(b,v)):a;}
+  function setStatus(text,state='info'){
+    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,state);return;}}catch(_){ }
+    const el=$('bgmFileName');
+    if(el){el.textContent=text;el.dataset.state=state;}
+  }
+  function humanName(path){
+    let s=String(path||'');
+    try{s=decodeURIComponent(s);}catch(_){ }
+    return s.split('/').pop().replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
+  }
+  function safeRelativeAudioPath(path){
+    let s=String(path||'').trim().replace(/^\.\//,'').replace(/^\/+/, '');
+    if(!s||/^https?:\/\//i.test(s)||/^data:/i.test(s)||/^blob:/i.test(s)||s.includes('..'))return '';
+    const parts=s.split('/').filter(Boolean);
+    if(!parts.length||parts.length>4)return '';
+    if(!AUDIO_RE.test(parts[parts.length-1]))return '';
+    return parts.map(part=>encodeURIComponent(decodeURIComponent(part))).join('/');
+  }
+  function uniqueTracks(list){
+    const seen=new Set(),out=[];
+    for(const raw of list||[]){
+      const src=safeRelativeAudioPath(raw&&typeof raw==='object'?(raw.src||raw.file||raw.path||raw.url):raw);
+      if(!src)continue;
+      const key=src.toLowerCase();
+      if(seen.has(key))continue;
+      seen.add(key);
+      const name=raw&&typeof raw==='object'?(raw.name||raw.title||raw.label||humanName(src)):humanName(src);
+      out.push({src,name:String(name||humanName(src))});
+    }
+    return out;
+  }
+  async function fetchJson(url){
+    try{
+      const res=await fetch(url,{cache:'no-store',headers:{'Accept':'application/json, application/vnd.github+json'}});
+      if(!res.ok)return null;
+      return await res.json();
+    }catch(_){return null;}
+  }
+  function parseManifest(data){
+    if(!data)return [];
+    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:[])));
+    return uniqueTracks(arr);
+  }
+  async function loadManifestTracks(){
+    const manifests=[
+      'music_manifest.json','music-list.json','bgm_manifest.json','audio_manifest.json','tracks.json',
+      'bgm/music_manifest.json','music/music_manifest.json','audio/music_manifest.json','assets/audio/music_manifest.json'
+    ];
+    for(const m of manifests){
+      const tracks=parseManifest(await fetchJson(m));
+      if(tracks.length)return {tracks,source:m};
+    }
+    return {tracks:[],source:''};
+  }
+  function inferGithubRepo(){
+    const host=String(location.hostname||'').toLowerCase();
+    if(!host.endsWith('.github.io'))return null;
+    const owner=host.replace(/\.github\.io$/,'');
+    const parts=location.pathname.split('/').filter(Boolean).map(p=>{try{return decodeURIComponent(p);}catch(_){return p;}});
+    let repo=owner+'.github.io';
+    let dirParts=parts.slice();
+    if(parts.length&&parts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(parts[0])){
+      repo=parts[0];
+      dirParts=parts.slice(1);
+    }
+    if(dirParts.length&&/\.[a-z0-9]{2,8}$/i.test(dirParts[dirParts.length-1]))dirParts.pop();
+    return {owner,repo,dir:dirParts.join('/')};
+  }
+  async function githubBranches(info){
+    const branches=[];
+    try{
+      const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));
+      if(repo&&repo.default_branch)branches.push(repo.default_branch);
+    }catch(_){ }
+    for(const b of ['gh-pages','main','master'])if(!branches.includes(b))branches.push(b);
+    return branches;
+  }
+  function joinPath(a,b){
+    a=String(a||'').replace(/^\/+|\/+$/g,'');
+    b=String(b||'').replace(/^\/+|\/+$/g,'');
+    return [a,b].filter(Boolean).join('/');
+  }
+  function pathRelativeToBase(filePath,baseDir){
+    let p=String(filePath||'').replace(/^\/+/, '');
+    const base=String(baseDir||'').replace(/^\/+|\/+$/g,'');
+    if(base&&p.toLowerCase().startsWith(base.toLowerCase()+'/'))p=p.slice(base.length+1);
+    return safeRelativeAudioPath(p);
+  }
+  async function githubContentsFor(info,branch,path){
+    const enc=String(path||'').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+enc+'?ref='+encodeURIComponent(branch);
+    const data=await fetchJson(url);
+    return Array.isArray(data)?data:[];
+  }
+  async function loadGithubTracks(){
+    const info=inferGithubRepo();
+    if(!info)return {tracks:[],source:''};
+    const branches=await githubBranches(info);
+    const base=String(info.dir||'').replace(/^\/+|\/+$/g,'');
+
+    for(const br of branches){
+      const tracks=[];
+      for(const sub of COMMON_AUDIO_DIRS){
+        const dir=joinPath(base,sub);
+        const items=await githubContentsFor(info,br,dir);
+        for(const item of items){
+          if(!item||item.type!=='file'||!AUDIO_RE.test(item.name||''))continue;
+          const rel=safeRelativeAudioPath(joinPath(sub,item.name));
+          if(rel)tracks.push({src:rel,name:humanName(item.name)});
+        }
+      }
+      const clean=uniqueTracks(tracks);
+      if(clean.length)return {tracks:clean,source:'GitHub '+br};
+    }
+
+    for(const br of branches){
+      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
+      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
+      const prefix=base?base+'/':'';
+      const tracks=[];
+      for(const item of arr){
+        if(!item||item.type!=='blob'||!AUDIO_RE.test(item.path||''))continue;
+        const p=String(item.path||'');
+        if(prefix&&!p.toLowerCase().startsWith(prefix.toLowerCase()))continue;
+        const rel=pathRelativeToBase(p,base);
+        if(!rel)continue;
+        const first=rel.split('/')[0]||'';
+        if(rel.includes('/')&&!COMMON_AUDIO_DIRS.includes(first))continue;
+        tracks.push({src:rel,name:humanName(rel)});
+      }
+      const clean=uniqueTracks(tracks);
+      if(clean.length)return {tracks:clean,source:'GitHub tree '+br};
+    }
+    return {tracks:[],source:''};
+  }
+  async function loadAudioTracks(){
+    const m=await loadManifestTracks();
+    if(m.tracks.length)return m;
+    return await loadGithubTracks();
+  }
+  function pruneMusicSelect(){
+    const sel=$('bgmTrack');if(!sel)return;
+    for(const child of Array.from(sel.children)){
+      if(child.tagName==='OPTGROUP'){
+        if(child.dataset.finalAudioFinder!=='1'&&child.dataset.sameFolder!=='1'&&child.dataset.finalGithub!=='1')child.remove();
+      }else if(child.tagName==='OPTION'){
+        const keep=child.dataset.finalAudioFinder==='1'||child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX)||child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1';
+        if(!keep)child.remove();
+      }
+    }
+    if(!sel.options.length){
+      const ph=document.createElement('option');
+      ph.value='';ph.dataset.placeholder='1';ph.textContent='GitHub 음악 검색 필요';
+      sel.appendChild(ph);
+    }
+  }
+  function addTracksToSelect(tracks,source){
+    const sel=$('bgmTrack');if(!sel)return 0;
+    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
+    qsa('optgroup[data-final-audio-finder="1"],optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]',sel).forEach(g=>g.remove());
+    qsa('option',sel).forEach(o=>{if(o.dataset.placeholder!=='1'&&o.dataset.githubPlaceholder!=='1')o.remove();});
+    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
+    const clean=uniqueTracks(tracks);
+    if(!clean.length){pruneMusicSelect();return 0;}
+    qsa('option[data-placeholder="1"],option[data-github-placeholder="1"]',sel).forEach(o=>o.remove());
+    const group=document.createElement('optgroup');
+    group.label='GitHub BGM · '+(source||'audio');
+    group.dataset.finalAudioFinder='1';group.dataset.sameFolder='1';
+    clean.forEach((t,i)=>{
+      const key=SAME_PREFIX+'bgm_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,46);
+      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'samefolder'};
+      const opt=document.createElement('option');
+      opt.value=key;opt.textContent=t.name;opt.dataset.baseLabel=t.name;opt.dataset.sameFolder='1';opt.dataset.finalAudioFinder='1';opt.title=t.src;
+      group.appendChild(opt);
+    });
+    sel.appendChild(group);
+    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
+    const byPath=(()=>{try{return localStorage.getItem('f1BgmPath')||'';}catch(_){return '';}})();
+    const options=Array.from(sel.options);
+    if(remembered&&options.some(o=>o.value===remembered))sel.value=remembered;
+    else if(byPath){
+      const found=options.find(o=>{
+        const t=(typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[o.value]:null;
+        return t&&t.src===byPath;
+      });
+      sel.value=found?found.value:group.children[0].value;
+    }else sel.value=group.children[0].value;
+    const chosen=(typeof BGM!=='undefined'&&BGM.sameFolderTracks)?BGM.sameFolderTracks[sel.value]:null;
+    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);if(chosen)localStorage.setItem('f1BgmPath',chosen.src);}catch(_){ }
+    pruneMusicSelect();
+    try{if(typeof updateBgmOptionLabels==='function')updateBgmOptionLabels();}catch(_){ }
+    return clean.length;
+  }
+  async function refreshMusic(manual=false){
+    const btn=$('bgmSameFolder')||$('bgmSameFolderRefresh');
+    if(btn){btn.classList.add('simpleBusy');btn.textContent='검색 중…';}
+    if(manual)setStatus('GitHub 음악 파일을 검색 중입니다…','info');
+    const result=await loadAudioTracks();
+    const n=addTracksToSelect(result.tracks,result.source);
+    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',manual&&n===0);btn.textContent=n?('음악 '+n+'곡 찾음'):'음악 검색';}
+    if(n>0){
+      const sel=$('bgmTrack');
+      const t=(typeof BGM!=='undefined'&&BGM.sameFolderTracks&&sel)?BGM.sameFolderTracks[sel.value]:null;
+      setStatus('GitHub 음악 '+n+'곡 사용 가능 · '+(t?t.name:'선택 가능'),'ready');
+    }else{
+      setStatus('음악을 찾지 못했습니다. 가장 확실한 방법은 music_manifest.json에 파일명을 적어 index.html과 함께 올리는 것입니다.','error');
+    }
+    return n;
+  }
+  window.__refreshSameFolderMusic=refreshMusic;
+
+  function sameFolderSource(choice){
+    choice=choice||(($('bgmTrack')&&$('bgmTrack').value)||'');
+    if(typeof BGM!=='undefined'&&choice&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
+      const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||humanName(t.src),kind:'samefolder'};
+    }
+    return null;
+  }
+  try{resolveBgmSource=function(choice){return sameFolderSource(choice);};}catch(_){ }
+  try{bgmChoice=function(){const sel=$('bgmTrack');return sel?String(sel.value||''):'';};}catch(_){ }
+  try{bgmChoiceLabel=function(choice){const src=sameFolderSource(choice);return src?src.name:(choice||'BGM');};}catch(_){ }
+
+  function bindMusicUi(){
+    const sel=$('bgmTrack');
+    if(sel&&sel.dataset.finalAudioFinderBound!=='1'){
+      sel.dataset.finalAudioFinderBound='1';
+      sel.addEventListener('change',()=>{
+        const src=sameFolderSource(sel.value);
+        try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);if(src)localStorage.setItem('f1BgmPath',src.src);}catch(_){ }
+        if(state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
+        try{if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:state==='menu'});}catch(_){ }
+      },{capture:true,passive:true});
+    }
+    for(const id of ['bgmSameFolder','bgmSameFolderRefresh']){
+      const btn=$(id);
+      if(btn&&btn.dataset.finalAudioFinderBound!=='1'){
+        btn.dataset.finalAudioFinderBound='1';
+        btn.addEventListener('click',e=>{
+          try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
+          refreshMusic(true).then(n=>{if(n>0&&state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;if(typeof startBackgroundMusic==='function')startBackgroundMusic({preview:true});}catch(_){ }}});
+        },{capture:true,passive:false});
+      }
+    }
+    const box=document.querySelector('.musicBox');
+    if(box&&!box.querySelector('.finalBgmPathNote')){
+      const note=document.createElement('div');
+      note.className='finalBgmPathNote';
+      note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.38;';
+      note.innerHTML='권장 경로: <b>index.html과 같은 폴더</b> 또는 <b>bgm/</b>, <b>music/</b>, <b>audio/</b>. 가장 확실한 방식은 <b>music_manifest.json</b>에 파일 경로를 적는 것입니다.';
+      box.appendChild(note);
+    }
+  }
+
+  function simplifyGyroUi(){
+    const box=$('gyroMenuBox');if(!box)return;
+    const cssId='finalSimpleGyroUiCss20260630';
+    if(!$(cssId)){
+      const style=document.createElement('style');style.id=cssId;
+      style.textContent=`
+        #gyroMenuBox .gyroMenuTop,#gyroMenuBox .gyroDiagBox,#gyroMenuBox .gyroSmallToggle,#gyroMenuBox .gyroStabilityBox,#gyroMenuBox .gyroPrecisionBox{display:none!important;}
+        #gyroMenuBox label:has(#menuGyroPrecisionDeadzone),#gyroMenuBox label:has(#menuGyroPrecisionAutoZero),#gyroMenuBox label:has(#menuGyroInvert),#gyroMenuBox label:has(#menuGyroStability),#gyroMenuBox label:has(#menuGyroStabilityStrength){display:none!important;}
+        .gyroSimpleCenterBox{margin-top:9px;padding-top:8px;border-top:1px solid rgba(160,190,210,.16);}
+        .gyroSimpleCenterBox button{width:100%;font-size:10px;letter-spacing:.8px;padding:9px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;font-weight:900;box-shadow:none;}
+        .gyroSimpleCenterBox button:active{transform:translateY(1px);background:#20364b;}
+        .gyroSimpleStatus{margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;}
+        .gyroSimpleNote{margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;}
+      `;
+      document.head.appendChild(style);
+    }
+    qsa('.gyroPrecisionBox,.gyroStabilityBox,.gyroDiagBox,.gyroSmallToggle',box).forEach(el=>el.remove());
+    qsa('#gyroFinalNote20260630,.gyroStableNote',box).forEach(el=>el.remove());
+    const top=box.querySelector('.gyroMenuTop');if(top)top.style.display='none';
+    const enabled=$('menuGyroEnabled');if(enabled){enabled.checked=true;enabled.disabled=false;}
+    const sens=$('menuGyroSens');const sensVal=$('menuGyroSensValue');
+    if(sens){
+      sens.min='0.80';sens.max='6.00';sens.step='0.05';
+      if(!Number.isFinite(parseFloat(sens.value))||parseFloat(sens.value)<0.80)sens.value='2.40';
+      if(sensVal)sensVal.textContent=(parseFloat(sens.value)||2.40).toFixed(2)+'x';
+      if(!sens.dataset.finalSimpleGyroSens){
+        sens.dataset.finalSimpleGyroSens='1';
+        sens.addEventListener('input',()=>{const v=clampLocal(parseFloat(sens.value)||2.40,0.80,6.00);if(window.IOS_APP_INPUT)IOS_APP_INPUT.sensitivity=v;if(sensVal)sensVal.textContent=v.toFixed(2)+'x';try{localStorage.setItem('f1GyroSensitivityV2',v.toFixed(2));}catch(_){ }},{passive:true});
+      }
+    }
+    const note=box.querySelector('.gyroMenuNote');
+    if(note){
+      note.innerHTML='자이로 조향은 가로 플레이 기준으로 항상 사용합니다. 감도만 조절하고, 주행 자세가 달라졌을 때 아래 영점 조정을 누르세요.<div id="gyroPermissionHint" style="margin-top:5px;color:#36e6ff;font-weight:800;letter-spacing:.4px;">권한 상태: START 시 요청</div>';
+    }
+    let simple=box.querySelector('.gyroSimpleCenterBox');
+    if(!simple){
+      simple=document.createElement('div');simple.className='gyroSimpleCenterBox';
+      simple.innerHTML='<button type="button" id="menuGyroPrecisionCenter">영점 조정</button><div id="gyroStableStatus" class="gyroSimpleStatus">START 시 현재 자세가 영점으로 저장됩니다.</div><div class="gyroSimpleNote">폰을 편하게 잡은 상태에서 누르면 그 자세가 직진 기준이 됩니다.</div>';
+      box.appendChild(simple);
+    }else{
+      const btn=simple.querySelector('#menuGyroPrecisionCenter');if(btn)btn.textContent='영점 조정';
+    }
+    const btn=$('menuGyroPrecisionCenter');
+    if(btn&&btn.dataset.finalSimpleZeroBound!=='1'){
+      btn.dataset.finalSimpleZeroBound='1';
+      const run=e=>{
+        try{e.preventDefault();e.stopPropagation();}catch(_){ }
+        btn.textContent='영점 조정 중…';
+        const finish=ok=>{btn.textContent='영점 조정';const st=$('gyroStableStatus');if(st)st.textContent=ok?'영점 조정 완료':'센서 입력 대기 중 · START 후 다시 시도';};
+        try{
+          const f=window.__calibrateStableGyro||window.__centerPrecisionGyro||window.__centerIOSGyro;
+          const r=f?f('manual-zero'):null;
+          if(r&&typeof r.then==='function')r.then(x=>finish(x!==false)).catch(()=>finish(false));
+          else finish(r!==false);
+        }catch(_){finish(false);}
+      };
+      for(const ev of ['pointerdown','touchstart','click'])btn.addEventListener(ev,run,{capture:true,passive:false});
+    }
+    try{if(window.IOS_APP_INPUT){IOS_APP_INPUT.gyroEnabled=true;if(Number.isFinite(parseFloat(sens&&sens.value)))IOS_APP_INPUT.sensitivity=parseFloat(sens.value);}}catch(_){ }
+  }
+
+  function boot(){simplifyGyroUi();bindMusicUi();pruneMusicSelect();}
+  boot();
+  for(const d of [80,260,700,1400,2600])setTimeout(boot,d);
+  for(const d of [650,1250,2600])setTimeout(()=>refreshMusic(false),d);
+})();
+/* END FINAL GYRO UI SIMPLIFICATION + ROBUST GITHUB BGM FINDER */
+
+
+
+/* ============================================================
+   FINAL GYRO SETTINGS CLEANUP + ROBUST GITHUB BGM PATH PATCH — 2026-06-30
+   - Gyro menu shows only sensitivity and zero calibration.
+   - Removes visible dead-zone / auto-zero controls left by older patches.
+   - BGM search supports music_manifest.json plus same folder and common folders: bgm/, music/, audio/.
+   ============================================================ */
+(function installFinalGyroMenuAndRobustBgmPathPatch20260630(){
+  if(window.__finalGyroMenuAndRobustBgmPathPatch20260630)return;
+  window.__finalGyroMenuAndRobustBgmPathPatch20260630=true;
+
+  const BUILD='v2026.06.30-gyro-simple-bgm-paths';
+  const SAME_PREFIX='samefolder:';
+  const AUDIO_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(\?.*)?$/i;
+  const MANIFESTS=['music_manifest.json','bgm_manifest.json','audio_manifest.json','tracks.json','music-list.json','bgm/music_manifest.json','bgm/tracks.json','music/music_manifest.json','audio/music_manifest.json'];
+  const AUDIO_DIRS=['','bgm','music','audio','sound','sounds','assets/music','assets/audio'];
+  const $=id=>document.getElementById(id);
+  const c=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+
+  function setStatus(text,state='info'){
+    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,state);return;}}catch(_){ }
+    const e=$('bgmFileName');if(e){e.textContent=text;e.dataset.state=state;}
+  }
+  function updateBuildBadgeFinal(){
+    try{
+      const b=$('currentVersionBadge');
+      if(b)b.textContent='CURRENT BUILD · '+BUILD;
+      window.__currentMobileBuildVersion=BUILD;
+    }catch(_){ }
+  }
+
+  /* ---------- Gyro menu: sensitivity + zero calibration only. ---------- */
+  function removeControl(id){
+    const el=$(id);if(!el)return;
+    const block=el.closest('label')||el.closest('.gyroPrecisionSens')||el.closest('.gyroPrecisionToggle')||el.parentElement;
+    try{(block||el).remove();}catch(_){ }
+  }
+  function forceGyroOn(){
+    try{if(typeof IOS_APP_INPUT!=='undefined')IOS_APP_INPUT.gyroEnabled=true;}catch(_){ }
+    try{if(window.IOS_APP_INPUT)window.IOS_APP_INPUT.gyroEnabled=true;}catch(_){ }
+    const e=$('menuGyroEnabled');
+    if(e)e.checked=true;
+    try{localStorage.setItem('f1GyroEnabled','1');}catch(_){ }
+    try{if(typeof window.__applyMenuGyroSettings==='function')window.__applyMenuGyroSettings(false);}catch(_){ }
+  }
+  function cleanGyroMenu(){
+    forceGyroOn();
+    const box=$('gyroMenuBox');if(!box)return;
+
+    const top=box.querySelector('.gyroMenuTop');
+    if(top)top.style.display='none';
+    const state=$('gyroMenuState');
+    if(state){state.textContent='GYRO READY';state.classList.remove('off');}
+
+    removeControl('menuGyroPrecisionAutoZero');
+    removeControl('menuGyroPrecisionDeadzone');
+    removeControl('menuGyroPrecisionDeadzoneValue');
+
+    for(const el of Array.from(box.querySelectorAll('label,div,span'))){
+      const txt=(el.textContent||'').replace(/\s+/g,' ');
+      if(/중앙\s*데드존|데드존|자동\s*쏠림\s*보정|auto\s*zero/i.test(txt)){
+        if(el.id==='gyroPermissionHint'||el.id==='gyroStableStatus')continue;
+        const hasSens=!!el.querySelector('#menuGyroSens');
+        const hasCenter=!!el.querySelector('#menuGyroPrecisionCenter');
+        if(!hasSens&&!hasCenter){try{el.remove();}catch(_){ }}
+      }
+    }
+
+    const sens=$('menuGyroSens');
+    if(sens){
+      sens.disabled=false;
+      sens.min='0.80';sens.max='6.00';sens.step='0.05';
+      const v=c(parseFloat(sens.value)||2.40,0.80,6.00);
+      sens.value=v.toFixed(2);
+      const val=$('menuGyroSensValue');if(val)val.textContent=v.toFixed(2)+'x';
+    }
+
+    let center=$('menuGyroPrecisionCenter');
+    if(!center){
+      center=document.createElement('button');center.type='button';center.id='menuGyroPrecisionCenter';
+      center.style.cssText='margin-top:8px;width:100%;font-size:10px;letter-spacing:.8px;padding:8px 10px;border-radius:8px;background:#182433;border:1px solid rgba(54,230,255,.42);color:#eaf7ff;';
+      box.appendChild(center);
+    }
+    center.textContent='영점 조정';
+    if(center.dataset.gyroZeroOnlyBound20260630!=='1'){
+      center.dataset.gyroZeroOnlyBound20260630='1';
+      for(const ev of ['pointerdown','touchstart','click'])center.addEventListener(ev,e=>{
+        try{e.preventDefault();e.stopPropagation();}catch(_){ }
+        forceGyroOn();
+        try{
+          if(typeof window.__calibrateStableGyro==='function')window.__calibrateStableGyro('manual-zero');
+          else if(typeof window.__centerIOSWheelGyro==='function')window.__centerIOSWheelGyro();
+          else if(typeof window.__centerIOSGyro==='function')window.__centerIOSGyro();
+        }catch(_){ }
+      },{capture:true,passive:false});
+    }
+
+    let st=$('gyroStableStatus');
+    if(!st){st=document.createElement('div');st.id='gyroStableStatus';st.style.cssText='margin-top:6px;color:#37ff8b;font-size:9px;font-weight:900;letter-spacing:.7px;';box.appendChild(st);}
+    if(!/CENTER LOCKED|영점/.test(st.textContent||''))st.textContent='START 시 현재 각도가 영점으로 고정됩니다.';
+
+    let note=$('gyroFinalNote20260630')||$('gyroZeroOnlyNote20260630');
+    if(!note){note=document.createElement('div');note.id='gyroZeroOnlyNote20260630';note.style.cssText='margin-top:5px;color:#86a0b4;font-size:8.5px;line-height:1.35;';box.appendChild(note);}
+    note.textContent='폰을 좌우로 돌린 각도를 실제 핸들 각도처럼 부드럽게 반영합니다. 주행 중 영점은 자동으로 움직이지 않습니다.';
+  }
+
+  /* ---------- Robust GitHub BGM loader. ---------- */
+  function safeDecode(x){try{return decodeURIComponent(String(x||''));}catch(_){return String(x||'');}}
+  function encodePart(x){try{return encodeURIComponent(decodeURIComponent(String(x||'')));}catch(_){return encodeURIComponent(String(x||''));}}
+  function safeRel(path){
+    path=String(path||'').trim().replace(/^\.\//,'').replace(/^\/+/, '');
+    if(!path||/^https?:\/\//i.test(path)||/^data:/i.test(path)||/^blob:/i.test(path)||path.includes('..'))return '';
+    const parts=path.split('/').filter(Boolean);
+    if(!parts.length||parts.length>3)return '';
+    const first=(parts[0]||'').toLowerCase();
+    if(parts.length>1&&!['bgm','music','audio','sound','sounds','assets'].includes(first))return '';
+    if(first==='assets'&&parts.length>2&&!['music','audio','sound','sounds'].includes((parts[1]||'').toLowerCase()))return '';
+    if(!AUDIO_RE.test(parts[parts.length-1]))return '';
+    return parts.map(encodePart).join('/');
+  }
+  function humanName(path){
+    const last=safeDecode(String(path||'').split('/').pop()||'');
+    return last.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'GitHub BGM';
+  }
+  function uniqTracks(list){
+    const seen=new Set(),out=[];
+    for(const it of list||[]){
+      const raw=typeof it==='string'?it:(it&&typeof it==='object'?(it.src||it.file||it.path||it.url||''):'');
+      const src=safeRel(raw);if(!src)continue;
+      const key=src.toLowerCase();if(seen.has(key))continue;
+      seen.add(key);
+      out.push({src,name:(it&&typeof it==='object'&&(it.name||it.title||it.label))||humanName(src)});
+    }
+    return out;
+  }
+  async function fetchJson(path){
+    try{const r=await fetch(path,{cache:'no-store',headers:{'Accept':'application/json, application/vnd.github+json'}});if(!r.ok)return null;return await r.json();}catch(_){return null;}
+  }
+  function parseManifest(data){
+    if(!data)return [];
+    const arr=Array.isArray(data)?data:(Array.isArray(data.tracks)?data.tracks:(Array.isArray(data.files)?data.files:(Array.isArray(data.music)?data.music:(Array.isArray(data.bgm)?data.bgm:[]))));
+    return uniqTracks(arr);
+  }
+  async function loadManifestTracks(){
+    for(const m of MANIFESTS){
+      const tracks=parseManifest(await fetchJson(m));
+      if(tracks.length)return {tracks,source:m};
+    }
+    return {tracks:[],source:''};
+  }
+  function inferGithub(){
+    const host=String(location.hostname||'').toLowerCase();
+    if(!host.endsWith('.github.io'))return null;
+    const owner=host.replace(/\.github\.io$/,'');
+    const parts=location.pathname.split('/').filter(Boolean).map(safeDecode);
+    let repo=owner+'.github.io',dir=[];
+    if(parts.length&&parts[0]!==repo&&!/\.[a-z0-9]{2,8}$/i.test(parts[0])){repo=parts[0];dir=parts.slice(1);}else dir=parts.slice();
+    if(dir.length&&/\.[a-z0-9]{2,8}$/i.test(dir[dir.length-1]))dir.pop();
+    return {owner,repo,dir:dir.join('/')};
+  }
+  async function githubBranches(info){
+    const out=[];
+    try{const repo=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo));if(repo&&repo.default_branch)out.push(repo.default_branch);}catch(_){ }
+    for(const b of ['gh-pages','main','master'])if(!out.includes(b))out.push(b);
+    return out;
+  }
+  function apiPath(parts){return parts.filter(Boolean).join('/').split('/').filter(Boolean).map(encodeURIComponent).join('/');}
+  function siteRelFromRepoPath(repoPath,siteDir){
+    let p=String(repoPath||'').replace(/^\/+/, '');
+    const d=String(siteDir||'').replace(/^\/+|\/+$/g,'');
+    if(d&&p.toLowerCase().startsWith(d.toLowerCase()+'/'))p=p.slice(d.length+1);
+    else if(!d&&p.toLowerCase().startsWith('docs/'))p=p.slice(5);
+    return safeRel(p);
+  }
+  async function urlExists(rel){
+    if(!rel)return false;
+    try{
+      const r=await fetch(rel,{method:'HEAD',cache:'no-store'});
+      if(r.ok)return true;
+    }catch(_){ }
+    try{
+      const r=await fetch(rel,{method:'GET',cache:'no-store',headers:{'Range':'bytes=0-1'}});
+      return !!(r.ok||r.status===206);
+    }catch(_){return false;}
+  }
+  async function verifyTracks(tracks){
+    const out=[];
+    for(const t of uniqTracks(tracks)){
+      if(out.length>=80)break;
+      if(await urlExists(t.src))out.push(t);
+    }
+    return out;
+  }
+  async function loadGithubTracks(){
+    const info=inferGithub();if(!info)return {tracks:[],source:''};
+    const branches=await githubBranches(info);
+    const dir=String(info.dir||'').replace(/^\/+|\/+$/g,'');
+    const dirCandidates=[];
+    function addDir(d){d=String(d||'').replace(/^\/+|\/+$/g,'');if(!dirCandidates.includes(d))dirCandidates.push(d);}
+    for(const sub of AUDIO_DIRS)addDir([dir,sub].filter(Boolean).join('/'));
+    if(!dir){for(const sub of AUDIO_DIRS)addDir(['docs',sub].filter(Boolean).join('/'));}
+
+    for(const br of branches){
+      for(const d of dirCandidates){
+        const url='https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/contents/'+apiPath([d])+'?ref='+encodeURIComponent(br);
+        const data=await fetchJson(url);
+        if(!Array.isArray(data))continue;
+        const tracks=data.filter(x=>x&&x.type==='file'&&AUDIO_RE.test(x.name||'')).map(x=>({src:siteRelFromRepoPath((d?d+'/':'')+x.name,dir),name:humanName(x.name)}));
+        const verified=await verifyTracks(tracks);
+        if(verified.length)return {tracks:verified,source:'GitHub '+br+(d?(' / '+d):'')};
+      }
+    }
+
+    for(const br of branches){
+      const tree=await fetchJson('https://api.github.com/repos/'+encodeURIComponent(info.owner)+'/'+encodeURIComponent(info.repo)+'/git/trees/'+encodeURIComponent(br)+'?recursive=1');
+      const arr=tree&&Array.isArray(tree.tree)?tree.tree:[];
+      if(!arr.length)continue;
+      const tracks=[];
+      for(const x of arr){
+        if(!x||x.type!=='blob'||!AUDIO_RE.test(x.path||''))continue;
+        const rel=siteRelFromRepoPath(x.path,dir);if(rel)tracks.push({src:rel,name:humanName(rel)});
+      }
+      const verified=await verifyTracks(tracks);
+      if(verified.length)return {tracks:verified,source:'GitHub tree '+br};
+    }
+    return {tracks:[],source:''};
+  }
+  async function loadBgmTracks(){
+    const manifest=await loadManifestTracks();
+    if(manifest.tracks.length){
+      const verified=await verifyTracks(manifest.tracks);
+      if(verified.length)return {tracks:verified,source:manifest.source};
+      return manifest;
+    }
+    return await loadGithubTracks();
+  }
+  function pruneSelectForGithub(){
+    const sel=$('bgmTrack');if(!sel)return;
+    for(const child of Array.from(sel.children)){
+      if(child.tagName==='OPTGROUP'){
+        if(child.dataset.finalRobustGithub!=='1'&&child.dataset.finalGithub!=='1'&&child.dataset.simpleGithub!=='1'&&child.dataset.sameFolder!=='1')child.remove();
+      }else if(child.tagName==='OPTION'){
+        const keep=child.dataset.placeholder==='1'||child.dataset.githubPlaceholder==='1'||child.dataset.sameFolder==='1'||String(child.value||'').startsWith(SAME_PREFIX);
+        if(!keep)child.remove();
+      }
+    }
+    if(!Array.from(sel.options).length){const ph=document.createElement('option');ph.value='';ph.dataset.placeholder='1';ph.textContent='BGM 검색을 눌러 GitHub 음악을 찾으세요';sel.appendChild(ph);}
+  }
+  function addTracks(tracks,source){
+    const sel=$('bgmTrack');if(!sel)return 0;
+    if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);
+    for(const g of Array.from(sel.querySelectorAll('optgroup[data-final-robust-github="1"],optgroup[data-final-github="1"],optgroup[data-simple-github="1"],optgroup[data-same-folder="1"]')))g.remove();
+    for(const o of Array.from(sel.querySelectorAll('option'))){if(!(o.dataset.placeholder==='1'||o.dataset.githubPlaceholder==='1'))o.remove();}
+    if(typeof BGM!=='undefined'&&BGM.sameFolderTracks){for(const k of Object.keys(BGM.sameFolderTracks))delete BGM.sameFolderTracks[k];}
+    const clean=uniqTracks(tracks);if(!clean.length){pruneSelectForGithub();return 0;}
+    const group=document.createElement('optgroup');group.label='GitHub BGM · '+(source||'audio');group.dataset.finalRobustGithub='1';group.dataset.finalGithub='1';group.dataset.sameFolder='1';
+    clean.forEach((t,i)=>{
+      const key=SAME_PREFIX+'robust_'+i+'_'+t.src.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,46);
+      if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]={src:t.src,name:t.name,kind:'github'};
+      const o=document.createElement('option');o.value=key;o.textContent=t.name;o.dataset.baseLabel=t.name;o.dataset.sameFolder='1';group.appendChild(o);
+    });
+    sel.appendChild(group);
+    const remembered=(()=>{try{return localStorage.getItem('f1BgmChoice')||localStorage.getItem('raceBgmChoice')||'';}catch(_){return '';}})();
+    if(remembered&&Array.from(sel.options).some(o=>o.value===remembered))sel.value=remembered;else sel.value=group.children[0].value;
+    try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }
+    pruneSelectForGithub();
+    return clean.length;
+  }
+  function sourceForChoice(choice){
+    try{
+      choice=choice||(($('bgmTrack')&&$('bgmTrack').value)||'');
+      if(choice&&String(choice).startsWith(SAME_PREFIX)&&typeof BGM!=='undefined'&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
+        const t=BGM.sameFolderTracks[choice];return {src:t.src,name:t.name||labelForChoice(choice),kind:t.kind||'github'};
+      }
+    }catch(_){ }
+    return null;
+  }
+  function firstChoice(){const sel=$('bgmTrack');return sel?((Array.from(sel.options).find(o=>String(o.value||'').startsWith(SAME_PREFIX))||{}).value||''):'';}
+  function labelForChoice(choice){const sel=$('bgmTrack');choice=choice||(sel&&sel.value)||'';const o=sel?Array.from(sel.options).find(x=>x.value===choice):null;return o?(o.dataset.baseLabel||o.textContent||'GitHub BGM').replace(/\s+✓$/,''):'GitHub BGM';}
+  function mediaMuted(){return !!(window.__f1GlobalSoundMuted||window.__allGameSoundMuted||window.__wholeGameMuted||(typeof SND!=='undefined'&&SND.muted));}
+  function bgmIsEnabled(){try{return typeof bgmEnabled==='function'?bgmEnabled():!!($('optBgm')&&$('optBgm').checked);}catch(_){return !!($('optBgm')&&$('optBgm').checked);}}
+  function wantBgm(preview=false){return bgmIsEnabled()&&!mediaMuted()&&!!sourceForChoice()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu));}
+  function setGain(node,value,t=0.06){try{if(node&&node.gain){if(typeof setAudioParam==='function')setAudioParam(node.gain,value,t);else node.gain.value=value;}}catch(_){ }}
+  function ensureAudioRoute(){
+    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(!a)return null;
+    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+    try{if(typeof SND!=='undefined'&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
+    try{a.playsInline=true;a.setAttribute('playsinline','');a.setAttribute('webkit-playsinline','');a.preload='auto';a.loop=true;}catch(_){ }
+    try{
+      if(typeof SND!=='undefined'&&SND.ctx&&!SND.robustBgmMediaSource){
+        SND.robustBgmMediaSource=SND.ctx.createMediaElementSource(a);
+        SND.robustBgmGain=SND.ctx.createGain();SND.robustBgmGain.gain.value=0;
+        SND.robustBgmMediaSource.connect(SND.robustBgmGain);SND.robustBgmGain.connect(SND.master);
+      }
+    }catch(_){ }
+    return a;
+  }
+  function stopBgm(note){
+    const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+    try{if(a){a.pause();a.muted=true;}}catch(_){ }
+    try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.previewInMenu=false;BGM.fallbackNotified=false;}}catch(_){ }
+    try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.04);setGain(SND.finalBgmGain,0,0.04);setGain(SND.robustBgmGain,0,0.04);}}catch(_){ }
+    if(note)setStatus(note,'paused');
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function playBgm(reason='play',preview=false){
+    if(preview&&state==='menu'&&typeof BGM!=='undefined')BGM.previewInMenu=true;
+    const sel=$('bgmTrack');
+    if(sel&&!String(sel.value||'').startsWith(SAME_PREFIX)){const f=firstChoice();if(f)sel.value=f;}
+    const src=sourceForChoice();const a=ensureAudioRoute();
+    if(!a||!src){setStatus('BGM 검색을 눌러 GitHub 음악을 먼저 찾으세요.','paused');return false;}
+    if(!wantBgm(preview)){if(state==='menu'&&!preview)stopBgm();return false;}
+    try{
+      const href=new URL(src.src,document.baseURI).href;
+      if(a.dataset.robustBgmSrc!==href){a.src=src.src;a.dataset.robustBgmSrc=href;a.load();try{a.currentTime=0;}catch(_){ }}
+      a.muted=false;
+      const vol=c((typeof bgmVolume==='function'?bgmVolume():0.84),0,1);
+      a.volume=(typeof SND!=='undefined'&&(SND.robustBgmGain||SND.finalBgmGain))?1:c(vol*0.95,0,1);
+      try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.04);setGain(SND.finalBgmGain,0,0.04);setGain(SND.robustBgmGain,vol*1.12,0.08);}}catch(_){ }
+      if(typeof BGM!=='undefined'){BGM.externalActive=true;BGM.fallbackNotified=false;BGM.sourceKey='robust|'+href;}
+      const p=a.play();
+      setStatus((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+src.name,'ready');
+      if(p&&typeof p.then==='function')p.then(()=>{try{if(typeof BGM!=='undefined')BGM.externalActive=true;}catch(_){ }}).catch(()=>setStatus('iPhone이 BGM 재생을 차단했습니다. START 또는 미리듣기를 한 번 더 누르세요.','error'));
+      return true;
+    }catch(_){setStatus('선택한 GitHub BGM을 재생할 수 없습니다. 파일명/경로와 Pages 배포 상태를 확인하세요.','error');return false;}
+  }
+  try{
+    bgmChoice=function(){const sel=$('bgmTrack');if(!sel)return '';let v=sel.value;if(!String(v||'').startsWith(SAME_PREFIX)){const f=firstChoice();if(f){sel.value=f;v=f;}}return v||'';};
+    bgmChoiceLabel=function(choice){return labelForChoice(choice);};
+    resolveBgmSource=function(choice){return sourceForChoice(choice||bgmChoice());};
+    startBackgroundMusic=function(opts={}){return playBgm('startBackgroundMusic',!!(opts&&opts.preview));};
+    pauseBackgroundMusic=function(note){stopBgm(note||'시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');};
+    fallbackToBuiltInBgm=function(note){stopBgm(note||'GitHub BGM 파일을 먼저 검색/선택하세요.');};
+    updateBackgroundMusic=function(mul){
+      const a=ensureAudioRoute();const should=wantBgm(false);
+      const vol=c((typeof bgmVolume==='function'?bgmVolume():0.84),0,1)*c(Number(mul)||1,0,1.4);
+      try{if(typeof SND!=='undefined'){setGain(SND.bgmGain,0,0.05);setGain(SND.finalBgmGain,0,0.05);setGain(SND.robustBgmGain,should&&a&&!a.paused?c(vol*1.12,0,1.2):0,0.08);}}catch(_){ }
+      if(a){a.muted=!should;a.volume=(typeof SND!=='undefined'&&(SND.robustBgmGain||SND.finalBgmGain))?1:c(vol*0.95,0,1);if(should&&a.paused){try{const p=a.play();if(p&&p.catch)p.catch(()=>{});}catch(_){ }}if(!should&&state==='menu'){try{a.pause();}catch(_){ }}}
+      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+    };
+    updateBgmPreviewButton=function(){
+      const b=$('bgmPreview');if(!b)return;
+      const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');
+      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&sourceForChoice());
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';b.classList.toggle('playing',playing);
+    };
+  }catch(_){ }
+
+  async function refreshBgm(manual=false){
+    pruneSelectForGithub();
+    const btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
+    if(btn){btn.textContent='검색 중…';btn.classList.add('simpleBusy');btn.classList.remove('simpleOk','simpleErr','ok','err');}
+    if(manual)setStatus('GitHub BGM을 검색 중입니다…','info');
+    const result=await loadBgmTracks();
+    const n=addTracks(result.tracks,result.source);
+    if(btn){btn.classList.remove('simpleBusy');btn.classList.toggle('simpleOk',n>0);btn.classList.toggle('simpleErr',manual&&n===0);btn.classList.toggle('ok',n>0);btn.classList.toggle('err',manual&&n===0);btn.textContent=n?('BGM '+n+'곡'):'BGM 검색';}
+    if(n>0){setStatus('GitHub BGM '+n+'곡을 찾았습니다 · '+labelForChoice(),'ready');if(manual){try{if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playBgm('manual-refresh',state==='menu');}catch(_){ }}}
+    else if(manual)setStatus('BGM을 찾지 못했습니다. 가장 확실한 방법은 index.html 옆에 bgm/ 폴더와 music_manifest.json을 같이 올리는 것입니다.','error');
+    return n;
+  }
+  window.__refreshSameFolderMusic=refreshBgm;
+  window.__refreshRobustGithubBgm=refreshBgm;
+  window.__playSelectedGithubBgm=playBgm;
+
+  function installBgmUi(){
+    const title=Array.from(document.querySelectorAll('.modeTitle')).find(x=>/BGM/i.test(x.textContent||''));
+    if(title)title.textContent='GITHUB BGM';
+    const actions=document.querySelector('.musicActions');
+    if(actions){
+      let btn=$('bgmSameFolderRefresh')||$('bgmSameFolder');
+      if(!btn){btn=document.createElement('button');btn.type='button';actions.appendChild(btn);} 
+      btn.id='bgmSameFolderRefresh';btn.className='musicPreview musicFolder';btn.textContent='BGM 검색';
+      if(btn.dataset.robustBgmBound20260630!=='1'){
+        const clone=btn.cloneNode(true);clone.id='bgmSameFolderRefresh';clone.className='musicPreview musicFolder';clone.textContent='BGM 검색';clone.dataset.robustBgmBound20260630='1';
+        btn.replaceWith(clone);btn=clone;
+        btn.addEventListener('click',async e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }try{if(typeof initAudio==='function')initAudio();}catch(_){ }await refreshBgm(true);},{capture:true,passive:false});
+      }
+    }
+    const box=document.querySelector('.musicBox');
+    if(box){
+      for(const n of Array.from(box.querySelectorAll('.licenseNote'))){n.style.display='none';}
+      let note=box.querySelector('.robustBgmPathNote');
+      if(!note){note=document.createElement('div');note.className='robustBgmPathNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.38;';box.appendChild(note);}
+      note.innerHTML='권장 경로: <b>index.html</b> 옆에 <b>bgm/</b> 폴더를 만들고 음악 파일을 넣으세요. 가장 확실하게 하려면 <b>music_manifest.json</b>도 함께 올리세요.';
+    }
+    const sel=$('bgmTrack');
+    if(sel&&sel.dataset.robustBgmSelectBound20260630!=='1'){
+      sel.dataset.robustBgmSelectBound20260630='1';
+      sel.addEventListener('change',()=>{try{localStorage.setItem('f1BgmChoice',sel.value);localStorage.setItem('raceBgmChoice',sel.value);}catch(_){ }try{if(typeof BGM!=='undefined')BGM.previewInMenu=state==='menu';playBgm('select-change',state==='menu');}catch(_){ }},{capture:true,passive:true});
+    }
+    const preview=$('bgmPreview');
+    if(preview&&preview.dataset.robustPreviewBound20260630!=='1'){
+      preview.dataset.robustPreviewBound20260630='1';
+      preview.addEventListener('click',e=>{try{e.preventDefault();e.stopPropagation();}catch(_){ }const a=(typeof bgmAudio==='function')?bgmAudio():$('bgmAudio');if(a&&a.src&&!a.paused){stopBgm('미리듣기 정지 · '+labelForChoice());return;}try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;playBgm('preview',true);}catch(_){ }},{capture:true,passive:false});
+    }
+  }
+
+  function boot(){updateBuildBadgeFinal();forceGyroOn();cleanGyroMenu();installBgmUi();pruneSelectForGithub();}
+  boot();
+  for(const d of [120,450,900,1600,2600])setTimeout(boot,d);
+  setTimeout(()=>refreshBgm(false),1050);
+  setTimeout(()=>refreshBgm(false),3200);
+
+  try{
+    if(typeof startRace==='function'&&!startRace.__robustBgmPaths20260630){
+      const prev=startRace;
+      startRace=function(){forceGyroOn();const r=prev.apply(this,arguments);try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){ }setTimeout(()=>playBgm('start-race',false),120);setTimeout(()=>playBgm('start-race-late',false),760);return r;};
+      startRace.__robustBgmPaths20260630=true;
+    }
+    if(typeof goToStartMenu==='function'&&!goToStartMenu.__robustMenuAudioStop20260630){
+      const prev=goToStartMenu;
+      goToStartMenu=function(){const r=prev.apply(this,arguments);stopBgm('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.');return r;};
+      goToStartMenu.__robustMenuAudioStop20260630=true;
+    }
+  }catch(_){ }
+})();
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
