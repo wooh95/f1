@@ -501,6 +501,8 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
             <option value="medium">보통 · 균형</option>
             <option value="high">높음 · 선명</option>
             <option value="ultra">최고품질 · 고발열</option>
+            <option value="extreme">극상 · 90/120Hz 대응</option>
+            <option value="native">네이티브+ · 실험적 고발열</option>
           </select>
         </label>
         <label>주행 FPS
@@ -509,7 +511,10 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
             <option value="24" selected>24 fps · iPhone 권장</option>
             <option value="30">30 fps · 표준</option>
             <option value="45">45 fps · 부드러움</option>
-            <option value="60">60 fps · 최고 부하</option>
+            <option value="60">60 fps · 고부하</option>
+            <option value="75">75 fps · 고주사율</option>
+            <option value="90">90 fps · 매우 고부하</option>
+            <option value="120">120 fps · ProMotion/최대 부하</option>
           </select>
         </label>
       </div>
@@ -3417,16 +3422,31 @@ function vehicleProgressAndPitInfo(v,sm){
     inQueue:offset>8&&Math.abs(rel-(boxRel-PIT_TEAM_QUEUE_GAP))<4.0&&Math.abs((v.d||0)-centerD)<PIT_HALF_W*0.82};
 }
 function updatePitMembership(v,info){
-  if(info.rel<PIT_ENTRY_REL-28||info.rel>PIT_EXIT_REL+28){v.inPitLane=false;return;}
+  if(info.rel<PIT_ENTRY_REL-28||info.rel>PIT_EXIT_REL+28){v.inPitLane=false;if(v===car&&!v.pitServiceActive)v._pitEntryCommitted=false;return;}
+  const isPlayer=v===car;
+  const pitDist=Math.abs((v.d||0)-info.centerD),mainDist=Math.abs(v.d||0);
+
+  // PIT_ENTRY_ABORT_FIX: the player's car is not committed to the pit lane at the mouth of the entry.
+  // A shallow accidental cut across the entry apron can be recovered by steering back toward the main track.
+  // A real service stop is confirmed later, after the car is fully inside the lane or explicitly requests pit service.
+  if(isPlayer&&!v.pitServiceActive){
+    const beforeHardSeparator=info.rel<PIT_SEPARATOR_START-2;
+    const beforeFullCommit=info.rel<PIT_FULL_IN_REL+10;
+    const returningToMain=mainDist+0.28<pitDist||Math.abs(v.d||0)<Math.max(1.1,Math.abs(info.centerD)*0.42);
+    if(!v.pitRequested&&beforeHardSeparator){v.inPitLane=false;v.pitStage=null;v._pitEntryCommitted=false;return;}
+    if((beforeFullCommit||beforeHardSeparator)&&returningToMain){v.inPitLane=false;if(!v.pitRequested)v.pitStage=null;v._pitEntryCommitted=false;return;}
+  }
+
   if(PIT_OPEN_APRON){
-    const committed=v===car?(v.pitRequested||v.pitServiceActive):(v.pitRequested||v.pitStage||v.pitServiceActive);
+    const committed=isPlayer?(v.pitRequested||v.pitServiceActive):(v.pitRequested||v.pitStage||v.pitServiceActive);
     // Free drifting across the Ebisu apron never triggers the limiter by accident.
     if(!committed){v.inPitLane=false;return;}
   }
-  const pitDist=Math.abs((v.d||0)-info.centerD),mainDist=Math.abs(v.d||0);
-  if(info.offset>5.5&&pitDist+0.45<mainDist)v.inPitLane=true;
-  if(info.rel<PIT_SEPARATOR_START&&info.rel>PIT_ENTRY_REL-5&&((v.d||0)-PIT_SEPARATOR_D)*PIT_SIDE>0.62)v.inPitLane=true;
+  const allowPitLatch=!isPlayer||v.pitRequested||v.pitServiceActive||info.rel>=PIT_FULL_IN_REL+4;
+  if(allowPitLatch&&info.offset>5.5&&pitDist+0.45<mainDist)v.inPitLane=true;
+  if(allowPitLatch&&info.rel<PIT_SEPARATOR_START&&info.rel>PIT_ENTRY_REL-5&&((v.d||0)-PIT_SEPARATOR_D)*PIT_SIDE>0.62)v.inPitLane=true;
   if(info.rel>PIT_SEPARATOR_END&&info.rel<PIT_EXIT_REL+5&&mainDist+0.42<pitDist)v.inPitLane=false;
+  if(isPlayer&&v.inPitLane&&info.rel>=PIT_FULL_IN_REL+4)v._pitEntryCommitted=true;
 }
 function resolvePitSeparator(v,sm,withSound,dt){
   const info=vehicleProgressAndPitInfo(v,sm);updatePitMembership(v,info);v.pitInfo=info;
@@ -3497,9 +3517,13 @@ function updatePitServiceAndLimiter(v,dt,isPlayer){
   if(v.pitServiceActive){runProtectedPitService(v,dt,isPlayer,info);return;}
 
   const needsService=damageModeEnabled&&totalDamage(v)>0.012;
-  const wantsService=isPlayer?(v.pitRequested||needsService):(v.pitStage==='lane'||v.pitStage==='service'||v.pitStage==='queue');
+  const wantsService=isPlayer?!!v.pitRequested:(v.pitStage==='lane'||v.pitStage==='service'||v.pitStage==='queue');
   const occupant=pitBoxOccupant(info.pitSlot,v),boxAvailable=!occupant;
-  if(info.inBox&&v.inPitLane&&needsService&&wantsService&&boxAvailable&&Math.abs(v.vx||0)<1.15){
+  if(isPlayer){
+    const holdingBox=info.inBox&&v.inPitLane&&needsService&&wantsService&&boxAvailable&&Math.abs(v.vx||0)<1.15;
+    v._pitBoxHoldT=holdingBox?(v._pitBoxHoldT||0)+dt:0;
+  }
+  if(info.inBox&&v.inPitLane&&needsService&&wantsService&&boxAvailable&&Math.abs(v.vx||0)<1.15&&(!isPlayer||(v._pitBoxHoldT||0)>=0.22)){
     v.pitServiceActive=true;v.pitStage='service';v.pitServiceT=0;v.serviceDamageSnapshot=copyDamageState(v);
     v.pitServiceDuration=pitServiceDurationFor(v);v.pitServiceSerial=(v.pitServiceSerial||0)+1;v.pitServiceAnchor=makePitServiceAnchor(v,info);
     if(isPlayer){showMsg((teamModeEnabled?'TEAM PIT CREW READY':'PIT CREW READY'),'',900);beep(520,0.10,0.18);}
@@ -5255,6 +5279,41 @@ function updatePitGuideHud(){
   }
   elPitGuideDistance.textContent=main;elPitGuideHint.textContent=hint;elPitGuideArrow.textContent=arrow;elPitGuideAlign.textContent=align;
 }
+
+function drawBestLapGhostOnMinimap(){
+  try{
+    if(IS_FREE_ROAM||state==='menu')return;
+    const api=window.__bestLapGhostChallenge,gh=api&&api.ghost;
+    const enabled=api&&typeof api.enabled==='function'?api.enabled():!!gh;
+    if(!enabled||!gh||!gh.data)return;
+    let x,z,th=0;
+    if(gh.root&&gh.root.visible){x=gh.root.position.x;z=gh.root.position.z;th=gh.root.rotation.y||0;}
+    else if(gh.running&&gh.data&&Array.isArray(gh.data.samples)){
+      const t=(typeof simTime==='number'?simTime:0)-(gh.lapStartT||0);
+      const s=typeof interpolateGhostSample==='function'?interpolateGhostSample(gh.data,t):null;
+      if(s){x=s.x;z=s.z;th=s.th||0;}
+    }
+    if(!Number.isFinite(x)||!Number.isFinite(z)||typeof mapXY!=='function')return;
+    const p=mapXY(x,z);
+    mapG.save();
+    mapG.translate(p[0],p[1]);
+    mapG.rotate(-(th||0));
+    mapG.fillStyle='rgba(93,246,255,.86)';
+    mapG.strokeStyle='rgba(0,0,0,.90)';
+    mapG.lineWidth=1.25;
+    mapG.beginPath();
+    mapG.moveTo(0,-6.2);mapG.lineTo(4.8,5.4);mapG.lineTo(0,2.5);mapG.lineTo(-4.8,5.4);mapG.closePath();
+    mapG.fill();mapG.stroke();
+    mapG.restore();
+    mapG.save();
+    mapG.fillStyle='rgba(93,246,255,.95)';
+    mapG.font='900 8px Segoe UI, Arial';
+    mapG.textAlign='center';mapG.textBaseline='middle';
+    mapG.fillText('G',p[0],p[1]-9.5);
+    mapG.restore();
+  }catch(_){ }
+}
+
 function drawHud(){
   const kmh=Math.abs(car.vx)*3.6|0;
   elSpeed.innerHTML=kmh+'<small>km/h</small>';
@@ -5327,6 +5386,7 @@ function drawHud(){
   const[mx,my]=mapXY(car.x,car.z);
   mapG.fillStyle='#'+teamDefFor(0).primary.toString(16).padStart(6,'0');mapG.strokeStyle='#fff';mapG.lineWidth=1.5;
   mapG.beginPath();mapG.arc(mx,my,4.5,0,7);mapG.fill();mapG.stroke();
+  drawBestLapGhostOnMinimap();
   // 순위
   if(elPos){const p=playerPosition();elPos.textContent='P'+p+'/'+fieldCount();}
 }
@@ -15751,14 +15811,16 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     low:{label:'낮음',dprM:0.66,dprD:0.90,physicsHz:90,maxSteps:5,hudMs:130,mirror:false,shadows:false,note:'iPhone 권장 · 발열 억제 · 미러/그림자 OFF'},
     medium:{label:'보통',dprM:0.82,dprD:1.20,physicsHz:120,maxSteps:6,hudMs:90,mirror:false,shadows:false,note:'균형 설정 · 선명도와 발열 절충'},
     high:{label:'높음',dprM:1.00,dprD:1.55,physicsHz:160,maxSteps:7,hudMs:60,mirror:false,shadows:true,note:'고화질 · 발열 증가 · 그림자 ON'},
-    ultra:{label:'최고품질',dprM:1.15,dprD:2.00,physicsHz:180,maxSteps:8,hudMs:40,mirror:true,shadows:true,note:'최대 선명도 · 미러/그림자 ON · 발열 큼'}
+    ultra:{label:'최고품질',dprM:1.15,dprD:2.00,physicsHz:180,maxSteps:8,hudMs:40,mirror:true,shadows:true,note:'최대 선명도 · 미러/그림자 ON · 발열 큼'},
+    extreme:{label:'극상',dprM:1.55,dprD:2.50,physicsHz:210,maxSteps:9,hudMs:34,mirror:true,shadows:true,note:'90/120Hz 대응 · GPU 부하 매우 큼'},
+    native:{label:'네이티브+',dprM:2.10,dprD:3.00,physicsHz:240,maxSteps:10,hudMs:28,mirror:true,shadows:true,note:'고해상도 실험 모드 · iPhone 발열 최대'}
   };
   function readRenderPrefsFree(){
     let saved={};try{saved=JSON.parse(localStorage.getItem(RENDER_PREF_KEY_FREE)||'{}')||{};}catch(_){}
     const qSel=$free('renderQuality'),fSel=$free('renderFps');
     const q=QUALITY_PRESETS_FREE[(qSel&&qSel.value)||saved.quality]?(qSel&&qSel.value)||saved.quality:'low';
     let fps=parseInt((fSel&&fSel.value)||saved.fps||24,10);
-    if(![15,24,30,45,60].includes(fps))fps=24;
+    if(![15,24,30,45,60,75,90,120].includes(fps))fps=24;
     return {quality:q,fps};
   }
   function writeRenderPrefsFree(){
@@ -15822,7 +15884,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     const q=$free('renderQuality'),f=$free('renderFps');
     let saved={};try{saved=JSON.parse(localStorage.getItem(RENDER_PREF_KEY_FREE)||'{}')||{};}catch(_){}
     if(q&&QUALITY_PRESETS_FREE[saved.quality])q.value=saved.quality;
-    if(f&&[15,24,30,45,60].includes(parseInt(saved.fps,10)))f.value=String(parseInt(saved.fps,10));
+    if(f&&[15,24,30,45,60,75,90,120].includes(parseInt(saved.fps,10)))f.value=String(parseInt(saved.fps,10));
     const onChange=()=>{writeRenderPrefsFree();applyRenderQualityFree();};
     if(q&&q.dataset.renderQualityBound!=='1'){q.dataset.renderQualityBound='1';q.addEventListener('change',onChange,{passive:true});}
     if(f&&f.dataset.renderFpsBound!=='1'){f.dataset.renderFpsBound='1';f.addEventListener('change',onChange,{passive:true});}
@@ -16392,6 +16454,32 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 })();
 /* END AUDIO MUTE + BGM RATE STABILITY PATCH — 2026-07-01 */
 
+
+
+/* ============================================================
+   PIT ENTRY ABORT + GHOST MINIMAP + 120FPS QUALITY PATCH — 2026-07-01
+   ============================================================ */
+(function installPitGhostQualityPatch20260701(){
+  if(window.__pitGhostQualityPatch20260701)return;
+  window.__pitGhostQualityPatch20260701=true;
+  function ensureOption(sel,value,text){
+    if(!sel||Array.from(sel.options).some(o=>o.value===value))return;
+    const o=document.createElement('option');o.value=value;o.textContent=text;sel.appendChild(o);
+  }
+  function ensureQualityFpsMenu20260701(){
+    const q=document.getElementById('renderQuality'),f=document.getElementById('renderFps');
+    ensureOption(q,'extreme','극상 · 90/120Hz 대응');
+    ensureOption(q,'native','네이티브+ · 실험적 고발열');
+    ensureOption(f,'75','75 fps · 고주사율');
+    ensureOption(f,'90','90 fps · 매우 고부하');
+    ensureOption(f,'120','120 fps · ProMotion/최대 부하');
+    const note=document.getElementById('renderQualityNote');
+    if(note&&!/120fps/.test(note.textContent||''))note.innerHTML+=' <span style="color:#ffd24a">120fps/네이티브+는 ProMotion 기기에서도 발열이 매우 큽니다.</span>';
+  }
+  ensureQualityFpsMenu20260701();
+  for(const d of [250,900,1800,3600])setTimeout(ensureQualityFpsMenu20260701,d);
+  window.__racePatchState20260701=Object.assign({},window.__racePatchState20260701,{pitEntryAbort:true,ghostMinimap:true,fpsOptions:[15,24,30,45,60,75,90,120],qualityOptions:['lowest','low','medium','high','ultra','extreme','native']});
+})();
 
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
