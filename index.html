@@ -117,6 +117,13 @@
   .gyroMenuSens input:disabled{opacity:.38;}
   #menuGyroSensValue{text-align:right;color:#fff;font-variant-numeric:tabular-nums;}
   .gyroMenuNote{margin-top:7px;color:#8298aa;font-size:9px;line-height:1.35;}
+  .runtimeQualityBox{max-width:560px;margin:0 auto 14px;padding:11px 13px;border:1px solid rgba(255,210,74,.28);border-radius:10px;background:rgba(15,22,31,.72);text-align:left;color:#cdd9e4;box-sizing:border-box;}
+  .runtimeQualityGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;}
+  .runtimeQualityBox label{display:block;color:#9fb4c4;font-size:10px;font-weight:900;letter-spacing:.7px;}
+  .runtimeQualityBox select{width:100%;margin-top:6px;background:#111820;color:#e7eef4;border:1px solid #3a4a58;border-radius:6px;padding:8px 9px;font-size:11px;}
+  #renderQualityNote{margin-top:8px;color:#8aa0b2;font-size:9px;line-height:1.42;}
+  #renderQualityNote b{color:#ffd24a;}
+  @media(max-width:900px){.runtimeQualityGrid{grid-template-columns:1fr 1fr}.runtimeQualityBox{max-width:100%;padding:9px;margin-bottom:9px}.runtimeQualityBox select{font-size:10px;padding:7px}#renderQualityNote{font-size:8px}}
 
   /* multi-class vehicle selector */
   .vehicleGrid{display:grid;grid-template-columns:repeat(4,minmax(145px,1fr));gap:9px;margin:0 auto 15px;max-width:850px;text-align:left;}
@@ -483,6 +490,30 @@ body.mobile-build #mobileRotate{display:none;position:fixed;z-index:25;left:50%;
       </div>
       <label class="gyroMenuSens"><span>감도</span><input id="menuGyroSens" type="range" min="0.80" max="6.00" step="0.05" value="2.40"><span id="menuGyroSensValue">2.40x</span></label>
       <div class="gyroMenuNote">START를 누르면 오디오와 자이로 권한을 함께 요청합니다. 팝업이 뜨면 허용을 누르세요. 현재 각도를 중앙값으로 자동 보정하며, 감도가 약하면 2.0x 이상으로 올리세요.<div id="gyroPermissionHint" style="margin-top:5px;color:#36e6ff;font-weight:800;letter-spacing:.4px;">권한 상태: START 대기</div></div>
+    </div>
+    <div class="modeTitle">RUNNING QUALITY / FPS</div>
+    <div class="runtimeQualityBox" id="runtimeQualityBox">
+      <div class="runtimeQualityGrid">
+        <label>주행 화질
+          <select id="renderQuality" aria-label="Driving render quality">
+            <option value="lowest">최저 · 발열 최소</option>
+            <option value="low" selected>낮음 · iPhone 권장</option>
+            <option value="medium">보통 · 균형</option>
+            <option value="high">높음 · 선명</option>
+            <option value="ultra">최고품질 · 고발열</option>
+          </select>
+        </label>
+        <label>주행 FPS
+          <select id="renderFps" aria-label="Driving frame rate">
+            <option value="15">15 fps · 최저 발열</option>
+            <option value="24" selected>24 fps · iPhone 권장</option>
+            <option value="30">30 fps · 표준</option>
+            <option value="45">45 fps · 부드러움</option>
+            <option value="60">60 fps · 최고 부하</option>
+          </select>
+        </label>
+      </div>
+      <div id="renderQualityNote">현재 설정: <b>낮음 / 24fps</b>. 발열이 심하면 최저 또는 15fps를 선택하세요.</div>
     </div>
     <div class="modeTitle">MAP / CIRCUIT</div>
     <div class="trackGrid" id="trackGrid">
@@ -11000,7 +11031,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 
   installMusicRefreshButton();
   removeStaleFullscreenButton();
-  setTimeout(()=>{removeStaleFullscreenButton();refreshSameFolderMusic(false);},600);
+  setTimeout(()=>{removeStaleFullscreenButton();},600);
 })();
 
 
@@ -14919,7 +14950,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     try{const saved=localStorage.getItem('f1WholeGameMute')==='1';setWholeSoundMutedSimple(saved);}catch(_){ }
   }
   firstSetup();
-  setTimeout(()=>{firstSetup();refreshMusicSimple(false);},500);
+  setTimeout(()=>{firstSetup();},500);
   setTimeout(()=>{firstSetup();},1500);
   for(const ev of ['pointerdown','touchstart','click'])document.addEventListener(ev,()=>unlockSimpleAudio(ev),{capture:true,passive:true});
   const start=$('btnStart');
@@ -15120,6 +15151,8 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   }
   function directTracksFree(){
     const out=[];
+    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3'];
+    for(const src of fixed)out.push({src:encodePathFree(src),fallbackSrc:encodePathFree(src),name:labelFree(src),path:src,served:true,priority:'known-bgm-folder'});
     try{
       const params=new URLSearchParams(location.search);
       for(const k of ['bgm','music','audio','track']){const v=params.get(k);if(v&&isAudioFree(v))out.push({src:encodePathFree(v),name:labelFree(v),served:true});}
@@ -15128,14 +15161,16 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
       const saved=localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath');
       if(saved&&isAudioFree(saved))out.push({src:saved,name:labelFree(saved),served:!/^https?:\/\//i.test(saved)});
     }catch(_){}
-    return uniqueTracksFree(out,20);
+    return uniqueTracksFree(out,40);
   }
   async function discoverBgmFree(force=false){
     const direct=directTracksFree();
-    const manifest=await scanManifestFree();
-    const gh=await scanGithubAudioTreeFree(force);
+    /* Automatic startup uses known local paths only to avoid heavy GitHub API scans on iPhone.
+       Pressing BGM 검색 performs the full repository tree scan for arbitrary filenames. */
+    const manifest=force?await scanManifestFree():{tracks:[],source:''};
+    const gh=force?await scanGithubAudioTreeFree(true):{tracks:[],source:'bgm/ known files'};
     const tracks=uniqueTracksFree([...(direct||[]),...(manifest.tracks||[]),...(gh.tracks||[])],180);
-    const src=gh.tracks&&gh.tracks.length?gh.source:(manifest.source||'direct path');
+    const src=gh.tracks&&gh.tracks.length?gh.source:(manifest.source||'bgm/Messy.mp3 · bgm/LoseMyMind.mp3');
     return {tracks,source:src};
   }
   function clearBgmOptionsFree(sel){
@@ -15407,7 +15442,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
         Array.from(box.querySelectorAll('.licenseNote,.sameFolderNote,.sameFolderOnlyNote,.noJsonBgmPathNote,.noJsonBgmManualNote,.finalBgmPathNote,.robustBgmPathNote')).forEach(n=>n.style.display='none');
         let note=box.querySelector('.freeNameBgmNote');
         if(!note){note=document.createElement('div');note.className='freeNameBgmNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.42;';box.appendChild(note);}
-        note.innerHTML='파일명은 자유입니다. 공개 GitHub repo에 <b>mp3/m4a/wav/ogg/flac</b>를 올린 뒤 <b>BGM 검색</b>을 누르면 전체 repo에서 오디오 파일을 찾아 목록에 표시합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
+        note.innerHTML='기본 후보로 <b>bgm/Messy.mp3</b>, <b>bgm/LoseMyMind.mp3</b>를 먼저 표시합니다. 다른 파일명도 자유롭게 올린 뒤 <b>BGM 검색</b>을 누르면 공개 GitHub repo 전체에서 오디오 파일을 찾아 목록에 추가합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
         let row=$free('bgmManualPathRow');
         if(!row){
           row=document.createElement('div');
@@ -15709,37 +15744,118 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 
   /* Thermal budget: lower DPR, no mirror, no shadows, lower mobile loop rate. */
   function isMobileFree(){try{return !!(typeof MOBILE_PROFILE!=='undefined'&&MOBILE_PROFILE);}catch(_){return /iP(hone|ad|od)|Android/i.test(navigator.userAgent||'');}}
-  function applyThermalFree(){
-    if(!isMobileFree())return;
+
+  const RENDER_PREF_KEY_FREE='f1RuntimeRenderQualityPrefs_20260630_v1';
+  const QUALITY_PRESETS_FREE={
+    lowest:{label:'최저',dprM:0.50,dprD:0.70,physicsHz:60,maxSteps:4,hudMs:200,mirror:false,shadows:false,note:'발열 최소 · 저해상도 · 미러/그림자 OFF'},
+    low:{label:'낮음',dprM:0.66,dprD:0.90,physicsHz:90,maxSteps:5,hudMs:130,mirror:false,shadows:false,note:'iPhone 권장 · 발열 억제 · 미러/그림자 OFF'},
+    medium:{label:'보통',dprM:0.82,dprD:1.20,physicsHz:120,maxSteps:6,hudMs:90,mirror:false,shadows:false,note:'균형 설정 · 선명도와 발열 절충'},
+    high:{label:'높음',dprM:1.00,dprD:1.55,physicsHz:160,maxSteps:7,hudMs:60,mirror:false,shadows:true,note:'고화질 · 발열 증가 · 그림자 ON'},
+    ultra:{label:'최고품질',dprM:1.15,dprD:2.00,physicsHz:180,maxSteps:8,hudMs:40,mirror:true,shadows:true,note:'최대 선명도 · 미러/그림자 ON · 발열 큼'}
+  };
+  function readRenderPrefsFree(){
+    let saved={};try{saved=JSON.parse(localStorage.getItem(RENDER_PREF_KEY_FREE)||'{}')||{};}catch(_){}
+    const qSel=$free('renderQuality'),fSel=$free('renderFps');
+    const q=QUALITY_PRESETS_FREE[(qSel&&qSel.value)||saved.quality]?(qSel&&qSel.value)||saved.quality:'low';
+    let fps=parseInt((fSel&&fSel.value)||saved.fps||24,10);
+    if(![15,24,30,45,60].includes(fps))fps=24;
+    return {quality:q,fps};
+  }
+  function writeRenderPrefsFree(){
+    const p=readRenderPrefsFree();
+    try{localStorage.setItem(RENDER_PREF_KEY_FREE,JSON.stringify(p));}catch(_){}
+    return p;
+  }
+  function renderBudgetFree(){
+    const p=readRenderPrefsFree();
+    const q=QUALITY_PRESETS_FREE[p.quality]||QUALITY_PRESETS_FREE.low;
+    const nativeDpr=Math.max(1,window.devicePixelRatio||1);
+    const dprCap=isMobileFree()?q.dprM:q.dprD;
+    return {prefs:p,preset:q,fps:p.fps,menuFps:isMobileFree()?6:12,dpr:Math.min(nativeDpr,dprCap),physicsStep:1/Math.max(30,q.physicsHz||90),maxSteps:q.maxSteps||5,hudMs:q.hudMs||120,mirror:!!q.mirror,shadows:!!q.shadows};
+  }
+  function renderRaceFpsFree(){return renderBudgetFree().fps;}
+  function renderMenuFpsFree(){return renderBudgetFree().menuFps;}
+  function renderSimStepFree(){return renderBudgetFree().physicsStep;}
+  function renderMaxStepsFree(){return renderBudgetFree().maxSteps;}
+  function renderHudIntervalFree(){return renderBudgetFree().hudMs;}
+  function updateRenderQualityNoteFree(){
+    const note=$free('renderQualityNote');if(!note)return;
+    const b=renderBudgetFree();
+    note.innerHTML='현재 설정: <b>'+b.preset.label+' / '+b.fps+'fps</b> · DPR '+b.dpr.toFixed(2)+' · 물리 '+Math.round(1/b.physicsStep)+'Hz · '+b.preset.note;
+  }
+  function setSceneShadowBudgetFree(on){
+    try{if(typeof renderer!=='undefined'&&renderer&&renderer.shadowMap)renderer.shadowMap.enabled=!!on;}catch(_){}
+    try{if(typeof sun!=='undefined'&&sun)sun.castShadow=!!on;}catch(_){}
     try{
-      if(typeof renderer!=='undefined'&&renderer){
-        const dpr=Math.min(window.devicePixelRatio||1,0.68);
-        renderer.setPixelRatio(dpr);
-        renderer.shadowMap.enabled=false;
+      if(typeof scene!=='undefined'&&scene){
+        scene.traverse(o=>{
+          try{
+            if(!o.userData)o.userData={};
+            if(o.userData.__renderQCast===undefined)o.userData.__renderQCast=!!o.castShadow;
+            if(o.userData.__renderQReceive===undefined)o.userData.__renderQReceive=!!o.receiveShadow;
+            o.castShadow=on?!!o.userData.__renderQCast:false;
+            o.receiveShadow=on?!!o.userData.__renderQReceive:false;
+          }catch(_){}
+        });
       }
-      if(typeof sun!=='undefined'&&sun)sun.castShadow=false;
-      if(typeof scene!=='undefined'&&scene&&!scene.userData.__freeThermalNoShadow){
-        scene.userData.__freeThermalNoShadow=true;
-        scene.traverse(o=>{try{o.castShadow=false;o.receiveShadow=false;}catch(_){}});
-      }
-      const mf=$free('mirrorFrame');if(mf)mf.style.display='none';
-      const hint=$free('teamModeHint');if(hint)hint.textContent='iPhone 발열 저감 모드: 낮은 DPR, 그림자 OFF, 미러 OFF, 24fps 주행 / 6fps 메뉴.';
+    }catch(_){}
+  }
+  let lastRenderQualitySigFree='',lastRenderShadowStateFree=null,lastRenderQualityNoteFree=0;
+  function applyRenderQualityFree(){
+    const b=renderBudgetFree();
+    const sig=b.prefs.quality+'|'+b.fps+'|'+b.dpr.toFixed(3)+'|'+innerWidth+'x'+innerHeight;
+    if(sig!==lastRenderQualitySigFree){
+      lastRenderQualitySigFree=sig;
+      try{if(typeof renderer!=='undefined'&&renderer)renderer.setPixelRatio(b.dpr);}catch(_){}
+      const n=nowFree();
+      if(n-lastRenderQualityNoteFree>260){lastRenderQualityNoteFree=n;updateRenderQualityNoteFree();}
+    }
+    if(lastRenderShadowStateFree!==b.shadows){
+      lastRenderShadowStateFree=b.shadows;
+      setSceneShadowBudgetFree(b.shadows);
+    }
+    const mf=$free('mirrorFrame');
+    if(mf){const want=(b.mirror&&state!=='menu')?'block':'none';if(mf.style.display!==want)mf.style.display=want;}
+    return b;
+  }
+  function installRenderQualityUiFree(){
+    const q=$free('renderQuality'),f=$free('renderFps');
+    let saved={};try{saved=JSON.parse(localStorage.getItem(RENDER_PREF_KEY_FREE)||'{}')||{};}catch(_){}
+    if(q&&QUALITY_PRESETS_FREE[saved.quality])q.value=saved.quality;
+    if(f&&[15,24,30,45,60].includes(parseInt(saved.fps,10)))f.value=String(parseInt(saved.fps,10));
+    const onChange=()=>{writeRenderPrefsFree();applyRenderQualityFree();};
+    if(q&&q.dataset.renderQualityBound!=='1'){q.dataset.renderQualityBound='1';q.addEventListener('change',onChange,{passive:true});}
+    if(f&&f.dataset.renderFpsBound!=='1'){f.dataset.renderFpsBound='1';f.addEventListener('change',onChange,{passive:true});}
+    updateRenderQualityNoteFree();
+  }
+
+  function applyThermalFree(){
+    try{
+      const b=applyRenderQualityFree();
+      const hint=$free('teamModeHint');
+      if(hint)hint.textContent='주행 품질: '+b.preset.label+' / '+b.fps+'fps · '+b.preset.note;
     }catch(_){}
   }
   if(typeof renderSceneWithMirror==='function'&&!renderSceneWithMirror.__freeThermalNoMirror20260630){
     const oldRenderMirrorFree=renderSceneWithMirror;
     let lastRenderFree=0;
     renderSceneWithMirror=function(){
-      if(!isMobileFree())return oldRenderMirrorFree.apply(this,arguments);
+      const b=applyRenderQualityFree();
       const n=nowFree();
-      const fps=state==='menu'?6:24;
+      const fps=state==='menu'?renderMenuFpsFree():renderRaceFpsFree();
       if(n-lastRenderFree<1000/fps)return;
       lastRenderFree=n;
       try{
-        const mf=$free('mirrorFrame');if(mf)mf.style.display='none';
         renderer.setViewport(0,0,innerWidth,innerHeight);
         renderer.setScissorTest(false);
         renderer.render(scene,camera);
+        const mf=$free('mirrorFrame');
+        if(b.mirror&&state!=='menu'&&mf&&mf.style.display!=='none'&&typeof updateRearCamera==='function'&&typeof rearCamera!=='undefined'){
+          updateRearCamera();
+          const r=mf.getBoundingClientRect();
+          const x=Math.round(r.left),y=Math.round(innerHeight-r.bottom),w=Math.round(r.width),h=Math.round(r.height);
+          if(w>40&&h>20){renderer.clearDepth();renderer.setScissorTest(true);renderer.setScissor(x,y,w,h);renderer.setViewport(x,y,w,h);renderer.render(scene,rearCamera);renderer.setScissorTest(false);renderer.setViewport(0,0,innerWidth,innerHeight);}
+        }
       }catch(_){return oldRenderMirrorFree.apply(this,arguments);}
     };
     renderSceneWithMirror.__freeThermalNoMirror20260630=true;
@@ -15750,7 +15866,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     loop=function(now){
       requestAnimationFrame(loop);
       now=Number(now)||nowFree();
-      const fps=state==='menu'?6:24;
+      const fps=state==='menu'?renderMenuFpsFree():renderRaceFpsFree();
       if(now-finalFrame<1000/fps)return;
       finalFrame=now;
       let dt=(now-finalLast)/1000;finalLast=now;
@@ -15759,12 +15875,17 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
         try{
           updateInputs(dt);
           finalAcc+=dt;
-          while(finalAcc>=P.dt){
-            physStep(P.dt);
-            updateAI(P.dt);
-            resolveVehicleCollisions(P.dt);
-            finalAcc-=P.dt;
+          const qStep=renderSimStepFree();
+          const qMaxSteps=renderMaxStepsFree();
+          let qSteps=0;
+          while(finalAcc>=qStep&&qSteps<qMaxSteps){
+            physStep(qStep);
+            updateAI(qStep);
+            resolveVehicleCollisions(qStep);
+            finalAcc-=qStep;
+            qSteps++;
           }
+          if(finalAcc>qStep*qMaxSteps)finalAcc=qStep*0.5;
           aiCollideAndRender(dt);
           updateVisuals(dt);
           updatePitCrew(dt);
@@ -15785,7 +15906,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     let lastHudFree=0;
     drawHud=function(){
       if(isMobileFree()&&state!=='menu'){
-        const n=nowFree();if(n-lastHudFree<120)return;lastHudFree=n;
+        const n=nowFree();if(n-lastHudFree<renderHudIntervalFree())return;lastHudFree=n;
       }
       return oldHudFree.apply(this,arguments);
     };
@@ -15822,6 +15943,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   function bootFree(){
     loadGyroCenterFree();
     installBgmUiFree();
+    installRenderQualityUiFree();
     simplifyGyroUiFree();
     installMenuLockFree();
     restorePrefsFree();
@@ -15836,6 +15958,9 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   document.addEventListener('visibilitychange',()=>{if(document.hidden){try{stopBgmFree();}catch(_){}}},{passive:true});
 })();
 /* END FINAL FREE-NAME GITHUB BGM + IPHONE THERMAL PATCH — 2026-06-30 */
+
+
+
 
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
