@@ -15211,7 +15211,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   }
   function directTracksFree(){
     const out=[];
-    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3'];
+    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3','bgm/Drive.mp3'];
     for(const src of fixed)out.push({src:encodePathFree(src),fallbackSrc:encodePathFree(src),name:labelFree(src),path:src,served:true,priority:'known-bgm-folder'});
     try{
       const params=new URLSearchParams(location.search);
@@ -15230,7 +15230,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     const manifest=force?await scanManifestFree():{tracks:[],source:''};
     const gh=force?await scanGithubAudioTreeFree(true):{tracks:[],source:'bgm/ known files'};
     const tracks=uniqueTracksFree([...(direct||[]),...(manifest.tracks||[]),...(gh.tracks||[])],180);
-    const src=gh.tracks&&gh.tracks.length?gh.source:(manifest.source||'bgm/Messy.mp3 · bgm/LoseMyMind.mp3');
+    const src=gh.tracks&&gh.tracks.length?gh.source:(manifest.source||'bgm/Messy.mp3 · bgm/LoseMyMind.mp3 · bgm/Drive.mp3');
     return {tracks,source:src};
   }
   function clearBgmOptionsFree(sel){
@@ -15502,7 +15502,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
         Array.from(box.querySelectorAll('.licenseNote,.sameFolderNote,.sameFolderOnlyNote,.noJsonBgmPathNote,.noJsonBgmManualNote,.finalBgmPathNote,.robustBgmPathNote')).forEach(n=>n.style.display='none');
         let note=box.querySelector('.freeNameBgmNote');
         if(!note){note=document.createElement('div');note.className='freeNameBgmNote';note.style.cssText='margin-top:6px;color:#8aa0b2;font-size:9px;line-height:1.42;';box.appendChild(note);}
-        note.innerHTML='기본 후보로 <b>bgm/Messy.mp3</b>, <b>bgm/LoseMyMind.mp3</b>를 먼저 표시합니다. 다른 파일명도 자유롭게 올린 뒤 <b>BGM 검색</b>을 누르면 공개 GitHub repo 전체에서 오디오 파일을 찾아 목록에 추가합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
+        note.innerHTML='기본 후보로 <b>bgm/Messy.mp3</b>, <b>bgm/LoseMyMind.mp3</b>, <b>bgm/Drive.mp3</b>를 먼저 표시합니다. 다른 파일명도 자유롭게 올린 뒤 <b>BGM 검색</b>을 누르면 공개 GitHub repo 전체에서 오디오 파일을 찾아 목록에 추가합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
         let row=$free('bgmManualPathRow');
         if(!row){
           row=document.createElement('div');
@@ -16119,8 +16119,8 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
       const saved=localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath')||'';
       if(saved&&isAudioPathStable(saved))return {src:saved,fallbackSrc:saved,name:labelStable(saved),path:saved};
     }catch(_){ }
-    const direct='bgm/Messy.mp3';
-    return {src:direct,fallbackSrc:direct,name:'Messy',path:direct};
+    const direct='bgm/Drive.mp3';
+    return {src:direct,fallbackSrc:direct,name:'Drive',path:direct};
   }
   function canonicalUrlStable(src){try{return new URL(src,document.baseURI).href;}catch(_){return String(src||'');}}
   function fixBgmRateStable(force=false){
@@ -16307,7 +16307,7 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
     const sel=$stable('bgmTrack');
     if(!sel)return;
     try{if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);}catch(_){ }
-    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3'];
+    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3','bgm/Drive.mp3'];
     const hasPath=src=>Array.from(sel.options).some(o=>String(o.title||o.dataset.path||o.textContent||'').toLowerCase().includes(String(src).split('/').pop().toLowerCase()));
     let group=Array.from(sel.children).find(ch=>ch.tagName==='OPTGROUP'&&ch.dataset.audioStableKnown20260701==='1');
     for(const src of fixed){
@@ -16481,6 +16481,508 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
   window.__racePatchState20260701=Object.assign({},window.__racePatchState20260701,{pitEntryAbort:true,ghostMinimap:true,fpsOptions:[15,24,30,45,60,75,90,120],qualityOptions:['lowest','low','medium','high','ultra','extreme','native']});
 })();
 
+
+
+
+
+
+
+
+
+
+
+/* ============================================================
+   DRIVE BGM + FORWARD MINIMAP MARKERS + ORGANIC FREE-ROAM ROADS — 2026-07-01
+   - Adds bgm/Drive.mp3 as a fixed GitHub BGM candidate.
+   - Corrects triangular minimap marker heading so the point shows the vehicle front.
+   - Adds non-orthogonal urban road overlays, elevated connectors, and side roads to NYC/LA free-roam maps.
+   ============================================================ */
+(function installDriveBgmForwardMarkerOrganicRoadPatch20260701(){
+  if(window.__driveBgmForwardMarkerOrganicRoadPatch20260701)return;
+  window.__driveBgmForwardMarkerOrganicRoadPatch20260701=true;
+
+  const PATCH_VERSION='2026-07-01-drive-bgm-forward-marker-organic-city-roads';
+  const KNOWN_BGM_PATHS=['bgm/Messy.mp3','bgm/LoseMyMind.mp3','bgm/Drive.mp3'];
+  const AUDIO_EXT_RE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(?:[?#].*)?$/i;
+  const $patch=id=>document.getElementById(id);
+
+  function safeDecodePatch(v){try{return decodeURIComponent(String(v||''));}catch(_){return String(v||'');}}
+  function encodePathPatch(path){return String(path||'').split('/').filter(Boolean).map(s=>encodeURIComponent(safeDecodePatch(s))).join('/');}
+  function labelFromPathPatch(path){
+    const raw=safeDecodePatch(String(path||'').split('/').pop()||'BGM');
+    return raw.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'BGM';
+  }
+  function isAudioPathPatch(path){return AUDIO_EXT_RE.test(String(path||''));}
+
+  function ensureDriveBgmOptionPatch(){
+    const sel=$patch('bgmTrack');
+    if(!sel)return;
+    try{if(typeof BGM!=='undefined'&&BGM&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);}catch(_){ }
+    let group=Array.from(sel.children).find(ch=>ch.tagName==='OPTGROUP'&&ch.dataset.driveBgmKnown20260701==='1');
+    const hasPath=src=>Array.from(sel.options).some(o=>{
+      const ref=String(o.title||o.dataset.path||o.dataset.src||o.value||o.textContent||'').toLowerCase();
+      return ref.includes(String(src).toLowerCase())||ref.includes(String(src).split('/').pop().toLowerCase());
+    });
+    for(const src of KNOWN_BGM_PATHS){
+      if(!isAudioPathPatch(src))continue;
+      const key='samefolder:known_bgm_'+src.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const track={src:encodePathPatch(src),fallbackSrc:encodePathPatch(src),name:labelFromPathPatch(src),path:src,kind:'known-bgm-folder'};
+      try{if(typeof BGM!=='undefined'&&BGM&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]=track;}catch(_){ }
+      if(hasPath(src))continue;
+      if(!group){
+        group=document.createElement('optgroup');
+        group.label='GitHub BGM · bgm 폴더 고정 후보';
+        group.dataset.driveBgmKnown20260701='1';
+        sel.appendChild(group);
+      }
+      const opt=document.createElement('option');
+      opt.value=key;
+      opt.textContent=track.name;
+      opt.title=src;
+      opt.dataset.path=src;
+      opt.dataset.src=track.src;
+      opt.dataset.baseLabel=track.name;
+      opt.dataset.sameFolder='1';
+      group.appendChild(opt);
+    }
+    const note=document.querySelector('.freeNameBgmNote')||document.querySelector('.licenseNote');
+    if(note&&/Messy\.mp3|LoseMyMind\.mp3|기본 후보|GitHub/.test(note.textContent||'')){
+      note.innerHTML='기본 후보로 <b>bgm/Messy.mp3</b>, <b>bgm/LoseMyMind.mp3</b>, <b>bgm/Drive.mp3</b>를 먼저 표시합니다. 다른 파일명도 자유롭게 올린 뒤 <b>BGM 검색</b>을 누르면 공개 GitHub repo 전체에서 오디오 파일을 찾아 목록에 추가합니다.';
+    }
+    if(!sel.value){
+      const first=Array.from(sel.options).find(o=>o.value&&o.value.indexOf('samefolder:')===0);
+      if(first)sel.value=first.value;
+    }
+  }
+
+  ensureDriveBgmOptionPatch();
+  for(const d of [120,420,1000,2200,4200])setTimeout(ensureDriveBgmOptionPatch,d);
+  try{
+    const oldRefresh=window.__refreshFreeNameGithubBgm;
+    if(typeof oldRefresh==='function'&&!oldRefresh.__driveBgm20260701){
+      window.__refreshFreeNameGithubBgm=async function(){
+        const r=await oldRefresh.apply(this,arguments);
+        ensureDriveBgmOptionPatch();
+        return r;
+      };
+      window.__refreshFreeNameGithubBgm.__driveBgm20260701=true;
+    }
+  }catch(_){ }
+
+  function drawForwardTrianglePatch(ctx,x,y,theta,opts={}){
+    if(!ctx||!Number.isFinite(x)||!Number.isFinite(y))return;
+    const size=Number(opts.size)||7;
+    const fill=opts.fill||'#ffffff';
+    const stroke=opts.stroke||'rgba(0,0,0,.85)';
+    const lw=Number(opts.lineWidth)||1.25;
+    const label=opts.label||'';
+    const labelDy=Number.isFinite(opts.labelDy)?opts.labelDy:-(size+4.5);
+    ctx.save();
+    ctx.translate(x,y);
+    // map y follows world +z, while vehicle forward is (sin(theta), cos(theta)).
+    // A local +Y triangle tip, rotated by -theta, therefore points to the real vehicle front.
+    ctx.rotate(-(Number(theta)||0));
+    ctx.fillStyle=fill;
+    ctx.strokeStyle=stroke;
+    ctx.lineWidth=lw;
+    ctx.beginPath();
+    ctx.moveTo(0,size);
+    ctx.lineTo(size*.72,-size*.82);
+    ctx.lineTo(0,-size*.38);
+    ctx.lineTo(-size*.72,-size*.82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    if(label){
+      ctx.save();
+      ctx.fillStyle=opts.labelFill||fill;
+      ctx.strokeStyle='rgba(0,0,0,.75)';
+      ctx.lineWidth=2;
+      ctx.font=opts.font||'900 8px Segoe UI, Arial';
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      ctx.strokeText(label,x,y+labelDy);
+      ctx.fillText(label,x,y+labelDy);
+      ctx.restore();
+    }
+  }
+  window.__drawForwardMinimapMarker20260701=drawForwardTrianglePatch;
+
+  drawBestLapGhostOnMinimap=function drawBestLapGhostOnMinimapForwardPatch20260701(){
+    try{
+      if(IS_FREE_ROAM||state==='menu')return;
+      const api=window.__bestLapGhostChallenge,gh=api&&api.ghost;
+      const enabled=api&&typeof api.enabled==='function'?api.enabled():!!gh;
+      if(!enabled||!gh||!gh.data)return;
+      let x,z,th=0;
+      if(gh.root&&gh.root.visible){x=gh.root.position.x;z=gh.root.position.z;th=gh.root.rotation.y||0;}
+      else if(gh.running&&gh.data&&Array.isArray(gh.data.samples)){
+        const smp=gh.data.samples[Math.min(gh.data.samples.length-1,Math.max(0,Math.floor(((simTime-(gh.lapStartT||0))/(gh.data.lapTime||1))*gh.data.samples.length)))];
+        if(smp){x=smp.x;z=smp.z;th=smp.th||0;}
+      }
+      if(!Number.isFinite(x)||!Number.isFinite(z)||typeof mapXY!=='function'||!mapG)return;
+      const p=mapXY(x,z);
+      drawForwardTrianglePatch(mapG,p[0],p[1],th,{size:6.4,fill:'rgba(93,246,255,.88)',stroke:'rgba(0,0,0,.92)',lineWidth:1.25,label:'G',labelFill:'rgba(93,246,255,.98)',labelDy:-10});
+    }catch(_){ }
+  };
+
+  function installOrganicFreeRoamRoadsPatch(){
+    try{
+      if(!IS_FREE_ROAM||!window.THREE||!scene||scene.getObjectByName('FREE_ROAM_ORGANIC_URBAN_ROADS_20260701')||scene.getObjectByName('DIVERSE_URBAN_ROADS_FRONT_MARKER_PATCH_20260701')||window.__urbanDiverseRoads20260701)return;
+      const group=new THREE.Group();
+      group.name='FREE_ROAM_ORGANIC_URBAN_ROADS_20260701';
+      scene.add(group);
+      const ROADS=[];
+      const matRoad=new THREE.MeshBasicMaterial({color:0x202830,side:THREE.DoubleSide,depthTest:true,depthWrite:true});
+      const matMajor=new THREE.MeshBasicMaterial({color:0x303842,side:THREE.DoubleSide,depthTest:true,depthWrite:true});
+      const matFreeway=new THREE.MeshBasicMaterial({color:0x24382f,side:THREE.DoubleSide,depthTest:true,depthWrite:true});
+      const matElev=new THREE.MeshBasicMaterial({color:0x2f3845,side:THREE.DoubleSide,transparent:true,opacity:.94,depthTest:true,depthWrite:false});
+      const matShoulder=new THREE.MeshBasicMaterial({color:0xdadfdc,side:THREE.DoubleSide,depthTest:true,depthWrite:true});
+      const matLane=new THREE.MeshBasicMaterial({color:0xf6f2dc,side:THREE.DoubleSide,transparent:true,opacity:.82,depthTest:true,depthWrite:false});
+      const matYellow=new THREE.MeshBasicMaterial({color:0xffd24a,side:THREE.DoubleSide,transparent:true,opacity:.90,depthTest:true,depthWrite:false});
+      const matShadow=new THREE.MeshBasicMaterial({color:0x000000,side:THREE.DoubleSide,transparent:true,opacity:.24,depthTest:false,depthWrite:false});
+      const matSupport=new THREE.MeshBasicMaterial({color:0x42484e});
+
+      function local(cx,cz,rot,ox,oz){const c=Math.cos(rot),s=Math.sin(rot);return {x:cx+c*ox-s*oz,z:cz+s*ox+c*oz};}
+      function addPlane(w,d,material,cx,cz,rot,y,order){
+        const mesh=new THREE.Mesh(new THREE.PlaneGeometry(Math.max(.2,w),Math.max(.2,d)),material);
+        mesh.rotation.x=-Math.PI/2;
+        mesh.rotation.z=rot;
+        mesh.position.set(cx,y,cz);
+        mesh.renderOrder=order||56;
+        mesh.receiveShadow=false;
+        group.add(mesh);
+        return mesh;
+      }
+      function addLocalPlane(w,d,material,cx,cz,rot,ox,oz,y,order){const p=local(cx,cz,rot,ox,oz);return addPlane(w,d,material,p.x,p.z,rot,y,order);}
+      function addSupport(cx,cz,rot,lx,y){
+        const p=local(cx,cz,rot,lx,0);
+        const col=new THREE.Mesh(new THREE.BoxGeometry(1.7,Math.max(.12,y),1.7),matSupport);
+        col.position.set(p.x,Math.max(.06,y/2),p.z);
+        col.renderOrder=51;
+        group.add(col);
+      }
+      function roadSegment(name,x1,z1,x2,z2,width,kind='street',elevated=false){
+        const dx=x2-x1,dz=z2-z1,L=Math.hypot(dx,dz);
+        if(L<2)return;
+        const rot=Math.atan2(dz,dx);
+        const cx=(x1+x2)/2,cz=(z1+z2)/2;
+        const yw=elevated?.118:.061;
+        const type=elevated?'overpass':kind;
+        ROADS.push({name:name||'',x1,z1,x2,z2,cx,cz,w:L,d:width,rot,type,major:kind==='major'||kind==='freeway'||elevated,freeway:kind==='freeway',elevated:!!elevated});
+        const material=elevated?matElev:(kind==='freeway'?matFreeway:(kind==='major'?matMajor:matRoad));
+        if(elevated)addPlane(L+8,width+8,matShadow,cx,cz,rot,.028,49);
+        addPlane(L,width,material,cx,cz,rot,yw,56+(elevated?3:0));
+        if(width>=22){
+          const edge=Math.max(.45,width*.034);
+          addLocalPlane(L,edge,matShoulder,cx,cz,rot,0,width/2-edge*.8,yw+.004,60);
+          addLocalPlane(L,edge,matShoulder,cx,cz,rot,0,-width/2+edge*.8,yw+.004,60);
+        }
+        if(width>=20){
+          addLocalPlane(L,.24,kind==='freeway'?matYellow:matLane,cx,cz,rot,0,0,yw+.006,61);
+          const maxMarks=Math.min(9,Math.max(2,Math.floor(L/105)));
+          const gap=L/(maxMarks+1);
+          for(let i=1;i<=maxMarks;i++){
+            const lx=-L/2+gap*i;
+            if(kind==='freeway'){
+              addLocalPlane(24,.26,matLane,cx,cz,rot,lx,width*.23,yw+.007,62);
+              addLocalPlane(24,.26,matLane,cx,cz,rot,lx,-width*.23,yw+.007,62);
+            }else if(kind==='major'||elevated){
+              addLocalPlane(22,.24,matLane,cx,cz,rot,lx,width*.22,yw+.007,62);
+              addLocalPlane(22,.24,matLane,cx,cz,rot,lx,-width*.22,yw+.007,62);
+            }
+          }
+        }
+        if(elevated){
+          for(let q=-L*.40;q<=L*.40;q+=Math.max(120,L/5))addSupport(cx,cz,rot,q,yw);
+          addLocalPlane(L,.34,matShoulder,cx,cz,rot,0,width/2+1.0,yw+.018,64);
+          addLocalPlane(L,.34,matShoulder,cx,cz,rot,0,-width/2-1.0,yw+.018,64);
+        }
+      }
+      function roadPath(name,pts,width,kind='street',elevated=false){
+        for(let i=0;i<pts.length-1;i++)roadSegment(i===0?name:'',pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1],width,kind,elevated);
+      }
+      function side(name,x,z,ang,len,width=15){
+        const c=Math.cos(ang),s=Math.sin(ang);
+        roadSegment(name,x-len*c/2,z-len*s/2,x+len*c/2,z+len*s/2,width,'street',false);
+      }
+
+      if(ACTIVE_TRACK_KEY==='nyc'){
+        roadPath('WEST SIDE ELEVATED CURVE',[[-560,-1080],[-610,-760],[-548,-430],[-585,-70],[-528,235],[-570,655],[-512,1120]],48,'freeway',true);
+        roadPath('FDR ELEVATED DRIVE',[[535,-1035],[572,-720],[520,-420],[586,-155],[520,145],[565,510],[520,945]],46,'freeway',true);
+        roadPath('BROADWAY DIAGONAL ARC',[[-385,-930],[-260,-705],[-115,-465],[25,-215],[128,80],[62,356],[-52,650],[-118,1030]],32,'major',false);
+        roadPath('BOWERY CANAL SWEEP',[[-292,-820],[-92,-735],[135,-690],[338,-625],[506,-548]],25,'major',false);
+        roadPath('QUEENSBORO APPROACH',[[250,-180],[420,-118],[615,-58],[835,28]],35,'major',true);
+        roadPath('BROOKLYN BRIDGE APPROACH',[[360,-755],[505,-718],[660,-692],[890,-720]],35,'major',true);
+        roadPath('CENTRAL PARK LOOP WEST',[[-337,96],[-307,225],[-292,380],[-338,565],[-318,742]],20,'street',false);
+        roadPath('CENTRAL PARK LOOP EAST',[[112,96],[86,250],[106,410],[70,590],[96,742]],20,'street',false);
+        roadPath('LOWER MANHATTAN SERVICE',[[-430,-920],[-310,-1005],[-120,-925],[40,-990],[245,-900],[410,-965]],18,'street',false);
+        const alleys=[[-365,-590,.72,180],[-275,-505,.56,155],[-185,-420,.82,165],[-20,-360,-.42,150],[170,-510,-.60,155],[285,-390,.44,140],[-285,735,-.50,170],[-80,815,.40,160],[220,700,-.55,150]];
+        for(const [x,z,a,l] of alleys)side('SERVICE CUT',x,z,a,l,14);
+      }else{
+        roadPath('PCH COASTAL CURVE',[[-780,-1120],[-850,-805],[-760,-535],[-838,-155],[-736,250],[-804,770]],50,'major',false);
+        roadPath('I-405 CURVED ELEVATED',[[-390,-1130],[-440,-780],[-350,-515],[-418,-250],[-358,105],[-405,720]],62,'freeway',true);
+        roadPath('US-101 HOLLYWOOD ARC',[[-455,290],[-175,350],[85,260],[350,280],[622,230],[840,318]],54,'freeway',true);
+        roadPath('SUNSET CANYON ROAD',[[-540,540],[-380,486],[-165,525],[72,454],[315,520],[560,470],[936,618]],32,'major',false);
+        roadPath('MULHOLLAND HILLS ROAD',[[132,642],[300,712],[514,652],[736,818],[978,724]],25,'street',true);
+        roadPath('VENICE SIDE STREETS',[[-745,-720],[-622,-665],[-530,-742],[-410,-690],[-302,-758]],18,'street',false);
+        roadPath('DTLA ONE-WAY DIAGONAL',[[340,-330],[452,-205],[598,-115],[760,24]],18,'street',false);
+        roadPath('10 TO 110 STACK RAMP',[[418,-652],[500,-595],[558,-506],[620,-410],[560,-300]],31,'freeway',true);
+        roadPath('LAX SERVICE LOOP',[[-642,-1035],[-538,-1095],[-410,-1058],[-290,-1120],[-160,-1042]],24,'major',false);
+        const alleys=[[-665,-455,.24,190],[-520,-335,-.35,180],[-120,-238,.50,160],[80,130,-.25,170],[420,-180,.72,160],[665,-60,-.45,150],[220,560,.35,160],[760,560,-.65,180]];
+        for(const [x,z,a,l] of alleys)side('SIDE ROAD',x,z,a,l,15);
+      }
+      window.__organicFreeRoamRoads20260701=ROADS;
+      window.__organicFreeRoamRoadGroup20260701=group;
+    }catch(e){console.warn('organic free-roam road patch failed',e);}
+  }
+
+  function drawOrganicFreeRoamMiniMapPatch(){
+    try{
+      if(!IS_FREE_ROAM||!mapG||!mapC)return;
+      const roads=window.__organicFreeRoamRoads20260701||[];
+      const baseBounds=ACTIVE_TRACK_KEY==='nyc'?{x0:-1240,x1:1240,z0:-1185,z1:1280}:{x0:-1240,x1:1120,z0:-1325,z1:980};
+      const bounds={...baseBounds};
+      for(const r of roads){
+        bounds.x0=Math.min(bounds.x0,r.x1,r.x2);bounds.x1=Math.max(bounds.x1,r.x1,r.x2);
+        bounds.z0=Math.min(bounds.z0,r.z1,r.z2);bounds.z1=Math.max(bounds.z1,r.z1,r.z2);
+      }
+      const W=mapC.width,H=mapC.height,pad=10;
+      mapG.clearRect(0,0,W,H);
+      mapG.fillStyle='#050a0f';mapG.fillRect(0,0,W,H);
+      const sc=Math.min((W-2*pad)/(bounds.x1-bounds.x0),(H-2*pad)/(bounds.z1-bounds.z0));
+      const ox=pad+(W-2*pad-(bounds.x1-bounds.x0)*sc)/2;
+      const oy=pad+(H-2*pad-(bounds.z1-bounds.z0)*sc)/2;
+      function xy(x,z){return [ox+(x-bounds.x0)*sc,oy+(z-bounds.z0)*sc];}
+      function rectFill(x0,z0,x1,z1,color){const a=xy(x0,z0),b=xy(x1,z1);mapG.fillStyle=color;mapG.fillRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));}
+      if(ACTIVE_TRACK_KEY==='nyc'){
+        rectFill(bounds.x0,bounds.z0,-610,bounds.z1,'rgba(25,91,141,.92)');
+        rectFill(610,bounds.z0,bounds.x1,bounds.z1,'rgba(25,91,141,.92)');
+        rectFill(-340,120,115,770,'rgba(50,135,67,.90)');
+      }else{
+        rectFill(bounds.x0,bounds.z0,-700,bounds.z1,'rgba(25,91,141,.92)');
+        rectFill(-835,bounds.z0,-700,bounds.z1,'rgba(216,190,128,.92)');
+      }
+      const drawRoad=(r,emph=false)=>{
+        const p=xy(r.cx,r.cz);
+        mapG.save();
+        mapG.translate(p[0],p[1]);
+        mapG.rotate(-r.rot);
+        const ww=Math.max(1.2,r.w*sc),dd=Math.max(1.2,r.d*sc);
+        mapG.fillStyle=r.elevated?'#8ab3ff':(r.freeway?'#21d78d':(r.major?'#f4f0dd':'#9aa7b2'));
+        mapG.globalAlpha=emph?0.98:(r.elevated?0.90:0.76);
+        mapG.fillRect(-ww/2,-dd/2,ww,dd);
+        mapG.globalAlpha=1;
+        mapG.strokeStyle=r.elevated?'#ffffff':(r.freeway?'#ffdd48':'#101820');
+        mapG.lineWidth=r.elevated?1.35:(r.freeway?1.25:.72);
+        mapG.beginPath();mapG.moveTo(-ww/2,0);mapG.lineTo(ww/2,0);mapG.stroke();
+        mapG.restore();
+      };
+      const legacy=[];
+      try{if(typeof FINAL_ROADS!=='undefined'&&Array.isArray(FINAL_ROADS))legacy.push(...FINAL_ROADS);}catch(_){ }
+      for(const r of legacy.filter(r=>!r.major&&!r.freeway))drawRoad(r,false);
+      for(const r of legacy.filter(r=>r.major&&!r.freeway))drawRoad(r,false);
+      for(const r of legacy.filter(r=>r.freeway))drawRoad(r,false);
+      for(const r of roads.filter(r=>!r.major&&!r.freeway&&!r.elevated))drawRoad(r,true);
+      for(const r of roads.filter(r=>r.major&&!r.freeway&&!r.elevated))drawRoad(r,true);
+      for(const r of roads.filter(r=>r.freeway||r.elevated))drawRoad(r,true);
+
+      try{
+        for(const a of (typeof activeAIs==='function'?activeAIs():[])){
+          if(!a)continue;
+          const ax=Number.isFinite(a.wx)?a.wx:(S&&S[a.idx]&&S[a.idx].p?S[a.idx].p.x:NaN);
+          const az=Number.isFinite(a.wz)?a.wz:(S&&S[a.idx]&&S[a.idx].p?S[a.idx].p.z:NaN);
+          if(!Number.isFinite(ax)||!Number.isFinite(az))continue;
+          const th=Number.isFinite(a.theta)?a.theta:(S&&S[a.idx]?S[a.idx].heading||0:0);
+          const p=xy(ax,az);
+          const col='#'+((a.color||0x36e6ff).toString(16).padStart(6,'0'));
+          drawForwardTrianglePatch(mapG,p[0],p[1],th,{size:4.6,fill:col,stroke:'rgba(0,0,0,.78)',lineWidth:1});
+        }
+      }catch(_){ }
+      const cp=xy(car.x,car.z);
+      drawForwardTrianglePatch(mapG,cp[0],cp[1],car.theta||0,{size:7.6,fill:'#ffffff',stroke:'#000',lineWidth:1.35,label:'P',labelFill:'#ffffff',labelDy:-10.8,font:'900 8px Segoe UI, Arial'});
+      mapG.fillStyle='rgba(0,0,0,.84)';mapG.fillRect(0,0,W,25);
+      mapG.fillStyle='#6dffcf';mapG.font='900 11.5px Segoe UI, Arial';
+      mapG.fillText(ACTIVE_TRACK_KEY==='nyc'?'NYC ORGANIC ROAD NETWORK':'LA ORGANIC ROAD NETWORK',9,16);
+      mapG.fillStyle='rgba(255,255,255,.84)';mapG.font='8.5px Segoe UI, Arial';
+      mapG.fillText('white=road · green=freeway · blue=elevated/overpass · arrows point front',9,H-8);
+    }catch(_){ }
+  }
+
+  installOrganicFreeRoamRoadsPatch();
+  const prevDrawHudOrganicPatch=drawHud;
+  drawHud=function drawHudOrganicFreeRoamForwardMarkers20260701(){
+    prevDrawHudOrganicPatch.apply(this,arguments);
+    if(IS_FREE_ROAM){
+      if(typeof window.__drawDiverseCityMiniMap20260701!=='function')drawOrganicFreeRoamMiniMapPatch();
+      if(elDelta){elDelta.textContent='ORGANIC CITY ROAD NETWORK';elDelta.style.color='#6dffcf';}
+    }
+  };
+
+  window.__racePatchState20260701=Object.assign({},window.__racePatchState20260701,{driveBgm:true,forwardMinimapMarkers:true,organicFreeRoamRoads:true,version:PATCH_VERSION,bgmFiles:KNOWN_BGM_PATHS.slice()});
+})();
+/* END DRIVE BGM + FORWARD MINIMAP MARKERS + ORGANIC FREE-ROAM ROADS PATCH — 2026-07-01 */
+
+
+/* ============================================================
+   FINAL LIGHTWEIGHT MINIMAP/BGM CONSOLIDATION PATCH — 2026-07-01C
+   ============================================================ */
+(function installFinalMinimapBgmConsolidation20260701C(){
+  if(window.__finalMinimapBgmConsolidation20260701C)return;
+  window.__finalMinimapBgmConsolidation20260701C=true;
+
+  function encodePath20260701C(path){
+    const s=String(path||'').trim();
+    if(/^https?:\/\//i.test(s)||/^blob:/i.test(s)||/^data:/i.test(s))return s;
+    return s.split('/').filter(Boolean).map(part=>encodeURIComponent(part)).join('/');
+  }
+  function label20260701C(path){return String(path||'BGM').split('/').pop().replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').trim()||'BGM';}
+  function ensureKnownBgm20260701C(){
+    const sel=document.getElementById('bgmTrack');
+    if(!sel)return;
+    try{if(typeof BGM!=='undefined'&&BGM&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);}catch(_){ }
+    let group=Array.from(sel.children).find(ch=>ch.tagName==='OPTGROUP'&&(ch.dataset.finalKnownBgm20260701C==='1'||ch.dataset.driveKnownBgm20260701B==='1'||ch.dataset.audioStableKnown20260701==='1'));
+    const paths=['bgm/Messy.mp3','bgm/LoseMyMind.mp3','bgm/Drive.mp3'];
+    for(const src of paths){
+      const leaf=src.split('/').pop().toLowerCase();
+      const exists=Array.from(sel.options).some(o=>String((o.title||'')+' '+(o.dataset&&o.dataset.path||'')+' '+(o.textContent||'')+' '+(o.value||'')).toLowerCase().includes(leaf));
+      const key='samefolder:final_known_'+src.toLowerCase().replace(/[^a-z0-9가-힣]+/g,'_');
+      const track={src:encodePath20260701C(src),fallbackSrc:encodePath20260701C(src),name:label20260701C(src),path:src,kind:'known-bgm-folder'};
+      try{if(typeof BGM!=='undefined'&&BGM&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]=track;}catch(_){ }
+      if(exists)continue;
+      if(!group){group=document.createElement('optgroup');group.label='GitHub BGM · bgm 폴더 고정 후보';group.dataset.finalKnownBgm20260701C='1';group.dataset.sameFolder='1';sel.appendChild(group);}
+      const opt=document.createElement('option');opt.value=key;opt.textContent=track.name;opt.title=src;opt.dataset.path=src;opt.dataset.baseLabel=track.name;opt.dataset.sameFolder='1';group.appendChild(opt);
+    }
+    const note=document.querySelector('.freeNameBgmNote');
+    if(note)note.innerHTML='기본 후보로 <b>bgm/Messy.mp3</b>, <b>bgm/LoseMyMind.mp3</b>, <b>bgm/Drive.mp3</b>를 먼저 표시합니다. 다른 파일명도 자유롭게 올린 뒤 <b>BGM 검색</b>을 누르면 공개 GitHub repo 전체에서 오디오 파일을 찾아 목록에 추가합니다. 권장 경로: <b>bgm/원하는이름.mp3</b>.';
+  }
+  ensureKnownBgm20260701C();
+  for(const d of [250,950,2200,4200])setTimeout(ensureKnownBgm20260701C,d);
+
+  function cityBounds20260701C(){return ACTIVE_TRACK_KEY==='nyc'?{x0:-1240,x1:1240,z0:-1185,z1:1280}:{x0:-1240,x1:1120,z0:-1325,z1:980};}
+  function makeXY20260701C(){
+    const b=cityBounds20260701C(),W=mapC.width,H=mapC.height,pad=10;
+    const sc=Math.min((W-2*pad)/(b.x1-b.x0),(H-2*pad)/(b.z1-b.z0));
+    const ox=pad+(W-2*pad-(b.x1-b.x0)*sc)/2,oy=pad+(H-2*pad-(b.z1-b.z0)*sc)/2;
+    return {xy:(x,z)=>[ox+(x-b.x0)*sc,oy+(z-b.z0)*sc],sc,b,W,H};
+  }
+  function drawArrow20260701C(ctx,x,y,theta,size,fill,stroke,label){
+    if(!ctx||!Number.isFinite(x)||!Number.isFinite(y))return;
+    ctx.save();ctx.translate(x,y);ctx.rotate(-(Number(theta)||0));ctx.fillStyle=fill||'#fff';ctx.strokeStyle=stroke||'rgba(0,0,0,.95)';ctx.lineWidth=Math.max(1,size*.15);
+    ctx.beginPath();ctx.moveTo(0,size);ctx.lineTo(size*.65,-size*.78);ctx.lineTo(0,-size*.30);ctx.lineTo(-size*.65,-size*.78);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+    if(label){ctx.save();ctx.fillStyle=fill||'#fff';ctx.font='900 '+Math.max(7,Math.round(size*.95))+'px Segoe UI, Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x,y-size-3);ctx.restore();}
+  }
+  window.__drawFrontMarker20260701C=drawArrow20260701C;
+
+  try{
+    drawBestLapGhostOnMinimap=function(){
+      try{
+        if(IS_FREE_ROAM||state==='menu')return;
+        const api=window.__bestLapGhostChallenge,gh=api&&api.ghost;
+        const enabled=api&&typeof api.enabled==='function'?api.enabled():!!gh;
+        if(!enabled||!gh||!gh.data)return;
+        let x,z,th=0;
+        if(gh.root&&gh.root.visible){x=gh.root.position.x;z=gh.root.position.z;th=gh.root.rotation.y||0;}
+        else if(gh.running&&gh.data&&Array.isArray(gh.data.samples)){
+          const t=(typeof simTime==='number'?simTime:0)-(gh.lapStartT||0);
+          const s=typeof interpolateGhostSample==='function'?interpolateGhostSample(gh.data,t):null;
+          if(s){x=s.x;z=s.z;th=s.th||0;}
+        }else if(gh.data&&Array.isArray(gh.data.samples)&&gh.data.samples.length){
+          const s=gh.data.samples[0];x=s.x;z=s.z;th=s.th||0;
+        }
+        if(!Number.isFinite(x)||!Number.isFinite(z)||typeof mapXY!=='function'||!mapG)return;
+        const p=mapXY(x,z);drawArrow20260701C(mapG,p[0],p[1],th,6.8,'rgba(93,246,255,.90)','rgba(0,0,0,.94)','G');
+      }catch(_){ }
+    };
+  }catch(_){ }
+
+  function roads20260701C(){
+    const out=[];
+    const seen=new Set();
+    function norm(r){
+      if(!r)return null;
+      if(Number.isFinite(r.x1)&&Number.isFinite(r.z1)&&Number.isFinite(r.x2)&&Number.isFinite(r.z2)){
+        const dx=r.x2-r.x1,dz=r.z2-r.z1,L=Math.hypot(dx,dz);
+        if(!Number.isFinite(L)||L<1)return null;
+        const kind=String(r.kind||r.type||'street');
+        return {cx:(r.x1+r.x2)/2,cz:(r.z1+r.z2)/2,w:L,d:Number(r.width||r.d||22),rot:Math.atan2(-dz,dx),overpass:!!(r.overpass||r.elevated||kind==='elevated'||kind==='overpass'),freeway:!!(r.freeway||kind==='freeway'),major:!!(r.major||kind==='major'||kind==='arterial'||kind==='freeway'||kind==='elevated'||kind==='overpass'),alley:!!(r.alley||kind==='alley'),name:r.name||''};
+      }
+      if(Number.isFinite(r.cx)&&Number.isFinite(r.cz)&&Number.isFinite(r.w)&&Number.isFinite(r.d)){
+        const kind=String(r.kind||r.type||'street');
+        return Object.assign({},r,{overpass:!!(r.overpass||r.elevated||kind==='elevated'||kind==='overpass'),freeway:!!(r.freeway||kind==='freeway'),major:!!(r.major||kind==='major'||kind==='arterial'||kind==='freeway'||kind==='elevated'||kind==='overpass'),alley:!!(r.alley||kind==='alley')});
+      }
+      return null;
+    }
+    function add(list){
+      for(const r of (Array.isArray(list)?list:[])){
+        const v=norm(r);if(!v)return;
+        const key=[v.cx.toFixed(1),v.cz.toFixed(1),v.w.toFixed(1),v.d.toFixed(1),Number(v.rot||0).toFixed(3)].join(':');
+        if(seen.has(key))continue;seen.add(key);out.push(v);
+      }
+    }
+    try{add(window.__organicFreeRoamRoads20260701);}catch(_){ }
+    try{const diverse=window.__urbanDiverseRoads20260701;add(diverse&&diverse.roads);}catch(_){ }
+    try{const api=window.__freeRoamRealisticUrbanRoadPatch20260701B;add(api&&api.roads);}catch(_){ }
+    return out;
+  }
+  function drawCityBase20260701C(ctx,env){
+    const {xy,b,W,H}=env;
+    ctx.clearRect(0,0,W,H);ctx.fillStyle='#050a0f';ctx.fillRect(0,0,W,H);
+    if(ACTIVE_TRACK_KEY==='nyc'){
+      let a=xy(b.x0,b.z0),bb=xy(-610,b.z1);ctx.fillStyle='rgba(25,91,141,.92)';ctx.fillRect(a[0],a[1],bb[0]-a[0],bb[1]-a[1]);
+      a=xy(610,b.z0);bb=xy(b.x1,b.z1);ctx.fillRect(a[0],a[1],bb[0]-a[0],bb[1]-a[1]);
+      a=xy(-340,120);bb=xy(115,770);ctx.fillStyle='rgba(50,135,67,.94)';ctx.fillRect(a[0],a[1],bb[0]-a[0],bb[1]-a[1]);
+    }else{
+      let a=xy(b.x0,b.z0),bb=xy(-690,b.z1);ctx.fillStyle='rgba(25,91,141,.92)';ctx.fillRect(a[0],a[1],bb[0]-a[0],bb[1]-a[1]);
+      a=xy(-820,b.z0);bb=xy(-690,b.z1);ctx.fillStyle='rgba(215,192,126,.92)';ctx.fillRect(a[0],a[1],bb[0]-a[0],bb[1]-a[1]);
+    }
+  }
+  function drawRoadRect20260701C(ctx,env,r){
+    const p=env.xy(r.cx,r.cz),sc=env.sc;
+    ctx.save();ctx.translate(p[0],p[1]);ctx.rotate(-Number(r.rot||0));
+    const ww=Math.max(1.4,Number(r.w||0)*sc),dd=Math.max(1.1,Number(r.d||0)*sc);
+    ctx.fillStyle=(r.overpass||r.elevated)?'#ffb84a':(r.freeway?'#20dd99':(r.major?'#fff2b5':(r.alley?'#6e7b86':'#c6d0d8')));
+    ctx.globalAlpha=r.alley?.82:.96;ctx.fillRect(-ww/2,-dd/2,ww,dd);ctx.globalAlpha=1;
+    ctx.strokeStyle=(r.overpass||r.elevated)?'#0c1016':(r.freeway?'#ffdf4b':'#0b1118');ctx.lineWidth=r.overpass?1.7:(r.freeway?1.45:.72);
+    ctx.beginPath();ctx.moveTo(-ww/2,0);ctx.lineTo(ww/2,0);ctx.stroke();
+    ctx.restore();
+  }
+  function drawFinalFreeRoamMap20260701C(){
+    if(!IS_FREE_ROAM||!mapG||!mapC)return;
+    const ctx=mapG,env=makeXY20260701C();
+    drawCityBase20260701C(ctx,env);
+    const roads=roads20260701C();
+    for(const r of roads.filter(v=>v.alley))drawRoadRect20260701C(ctx,env,r);
+    for(const r of roads.filter(v=>!v.alley&&!(v.overpass||v.elevated)))drawRoadRect20260701C(ctx,env,r);
+    for(const r of roads.filter(v=>(v.overpass||v.elevated)))drawRoadRect20260701C(ctx,env,r);
+    const cp=env.xy(car.x,car.z);drawArrow20260701C(ctx,cp[0],cp[1],car.theta,8.8,'#ffffff','rgba(0,0,0,.96)');
+    try{
+      for(const a of activeAIs()){
+        if(!a||!a.mesh||!a.mesh.g||!a.mesh.g.visible)continue;
+        const ax=Number.isFinite(a.wx)?a.wx:(S[a.idx]&&S[a.idx].p.x),az=Number.isFinite(a.wz)?a.wz:(S[a.idx]&&S[a.idx].p.z);
+        if(!Number.isFinite(ax)||!Number.isFinite(az))continue;
+        const p=env.xy(ax,az),col='#'+((a.color||0x36e6ff)&0xffffff).toString(16).padStart(6,'0');
+        drawArrow20260701C(ctx,p[0],p[1],Number.isFinite(a.theta)?a.theta:0,5.4,col,'rgba(0,0,0,.84)');
+      }
+    }catch(_){ }
+    ctx.save();ctx.fillStyle='rgba(0,0,0,.84)';ctx.fillRect(0,0,mapC.width,25);ctx.fillStyle='#6dffcf';ctx.font='900 11px Segoe UI, Arial';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+    ctx.fillText(ACTIVE_TRACK_KEY==='nyc'?'NYC · ANGLED STREETS / OVERPASSES':'LA · CURVES / FREEWAY STACKS',9,16);
+    ctx.fillStyle='rgba(255,255,255,.86)';ctx.font='8.5px Segoe UI, Arial';ctx.fillText('amber=overpass · yellow=arterial · narrow=side street · marker tip=front',9,mapC.height-8);ctx.restore();
+  }
+  window.__drawFinalFreeRoamMap20260701C=drawFinalFreeRoamMap20260701C;
+  if(typeof drawHud==='function'&&!drawHud.__finalMap20260701C){
+    const prev=drawHud;
+    let last=0;
+    drawHud=function(){
+      const r=prev.apply(this,arguments);
+      try{if(IS_FREE_ROAM){const t=(performance&&performance.now?performance.now():Date.now());if(t-last>90){last=t;drawFinalFreeRoamMap20260701C();}if(elLast)elLast.textContent='REALISTIC CITY MAP';if(elDelta){elDelta.textContent='CURVES · FLYOVERS · SIDE STREETS';elDelta.style.color='#6dffcf';}}}catch(_){ }
+      return r;
+    };
+    drawHud.__finalMap20260701C=true;
+  }
+})();
+/* END FINAL LIGHTWEIGHT MINIMAP/BGM CONSOLIDATION PATCH — 2026-07-01C */
 
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
