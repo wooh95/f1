@@ -15963,6 +15963,437 @@ document.getElementById('btnStart').addEventListener('click',async(e)=>{
 
 
 
+/* ============================================================
+   AUDIO MUTE + BGM RATE STABILITY PATCH — 2026-07-01
+   - One-tap MUTE uses a single debounced handler, so touch/pointer/click no longer toggle repeatedly.
+   - BGM is driven by one HTMLAudio element only; built-in synth/fallback BGM gains are forced off.
+   - BGM playbackRate/defaultPlaybackRate are locked to 1.0 and restored on ratechange/play events.
+   - Older samefolder keepalive patches are bypassed by wrapping bgmChoice with a non-samefolder prefix.
+   ============================================================ */
+(function installAudioMuteBgmRateStabilityPatch20260701(){
+  if(window.__audioMuteBgmRateStabilityPatch20260701)return;
+  window.__audioMuteBgmRateStabilityPatch20260701=true;
+
+  const BUILD_AUDIO_FIX='v2026.07.01-mute-bgm-rate-stable';
+  const STABLE_CHOICE_PREFIX='stable-bgm:';
+  const AUDIO_RE_STABLE=/\.(mp3|m4a|aac|wav|ogg|oga|flac|webm)(?:[?#].*)?$/i;
+  const $stable=id=>document.getElementById(id);
+  const nowStable=()=>performance&&performance.now?performance.now():Date.now();
+  const clampStable=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const decodeStable=s=>{try{return decodeURIComponent(String(s||''));}catch(_){return String(s||'');}};
+  const encodePathStable=p=>String(p||'').split('/').filter(Boolean).map(x=>encodeURIComponent(decodeStable(x))).join('/');
+  let stableMuted=!!(window.__f1StableGlobalMuted20260701||window.__f1FinalGlobalMuted||window.__f1FastGlobalMuted||window.__allGameSoundMuted||window.__f1GlobalSoundMuted);
+  try{if(localStorage.getItem('f1StableGlobalMuted20260701')==='1')stableMuted=true;}catch(_){ }
+  let lastMuteToggleStable=0;
+  let lastBgmUpdateStable=0;
+  let lastRateFixStable=0;
+
+  function setBgmStatusStable(text,stateName='info'){
+    try{if(typeof setBgmStatus==='function'){setBgmStatus(text,stateName);return;}}catch(_){ }
+    const e=$stable('bgmFileName');
+    if(e){e.textContent=text;e.dataset.state=stateName;}
+  }
+  function labelStable(src){
+    const raw=decodeStable(String(src||'').split('/').pop()||'BGM');
+    return raw.replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim()||'BGM';
+  }
+  function isAudioPathStable(src){return AUDIO_RE_STABLE.test(String(src||''));}
+  function rawBgmChoiceStable(){const sel=$stable('bgmTrack');return sel?String(sel.value||''):'';}
+  function optionForChoiceStable(choice=rawBgmChoiceStable()){
+    const sel=$stable('bgmTrack');
+    if(!sel)return null;
+    return Array.from(sel.options).find(o=>o.value===choice)||null;
+  }
+  function audioStable(){try{return typeof bgmAudio==='function'?bgmAudio():$stable('bgmAudio');}catch(_){return $stable('bgmAudio');}}
+  function bgmEnabledStable(){try{return typeof bgmEnabled==='function'?!!bgmEnabled():!!($stable('optBgm')&&$stable('optBgm').checked);}catch(_){return !!($stable('optBgm')&&$stable('optBgm').checked);}}
+  function bgmVolumeStable(){try{return clampStable(typeof bgmVolume==='function'?bgmVolume():(parseInt($stable('bgmVolume')&&$stable('bgmVolume').value,10)||84)/100,0,1);}catch(_){return 0.84;}}
+  function setAudioGainStable(node,value){
+    try{
+      if(!node)return;
+      const gain=node.gain?node.gain:node;
+      if(!gain)return;
+      const ctx=(typeof SND!=='undefined'&&SND&&SND.ctx)?SND.ctx:null;
+      if(ctx&&gain.cancelScheduledValues)gain.cancelScheduledValues(ctx.currentTime);
+      if(ctx&&gain.setValueAtTime)gain.setValueAtTime(Number(value)||0,ctx.currentTime);
+      else gain.value=Number(value)||0;
+    }catch(_){try{if(node&&node.gain)node.gain.value=Number(value)||0;}catch(__){} }
+  }
+  function zeroBgmSynthStable(){
+    try{
+      if(typeof SND==='undefined'||!SND)return;
+      ['bgmGain','finalBgmGain','robustBgmGain','extFanGain'].forEach(k=>setAudioGainStable(SND[k],0));
+    }catch(_){ }
+  }
+  function setMasterStable(value){
+    try{if(typeof SND!=='undefined'&&SND&&SND.master)setAudioGainStable(SND.master,value);}catch(_){ }
+  }
+  function syncMuteFlagsStable(on=stableMuted){
+    stableMuted=!!on;
+    window.__f1StableGlobalMuted20260701=stableMuted;
+    window.__f1FinalGlobalMuted=stableMuted;
+    window.__f1FastGlobalMuted=stableMuted;
+    window.__allGameSoundMuted=stableMuted;
+    window.__f1GlobalSoundMuted=stableMuted;
+    window.__wholeGameMuted=stableMuted;
+    try{if(typeof SND!=='undefined'&&SND)SND.muted=stableMuted;}catch(_){ }
+    try{localStorage.setItem('f1StableGlobalMuted20260701',stableMuted?'1':'0');localStorage.setItem('f1WholeGameMute',stableMuted?'1':'0');}catch(_){ }
+    try{document.body.classList.toggle('all-sound-muted',stableMuted);}catch(_){ }
+    const b=$stable('tMute');
+    if(b){b.textContent=stableMuted?'MUTED':'MUTE';b.classList.toggle('on',stableMuted);}
+    return stableMuted;
+  }
+  function isMutedStable(){return !!stableMuted;}
+  function selectedTrackStable(choice=rawBgmChoiceStable()){
+    try{
+      if(choice&&typeof BGM!=='undefined'&&BGM.sameFolderTracks&&BGM.sameFolderTracks[choice]){
+        const t=BGM.sameFolderTracks[choice];
+        if(t&&t.src)return {src:t.src,fallbackSrc:t.fallbackSrc||t.src,name:t.name||labelStable(t.src),path:t.path||t.src};
+      }
+    }catch(_){ }
+    const opt=optionForChoiceStable(choice);
+    const optPath=opt&&(opt.title||opt.dataset.path||opt.dataset.src||'');
+    if(optPath&&isAudioPathStable(optPath))return {src:/^https?:\/\//i.test(optPath)?optPath:encodePathStable(optPath),fallbackSrc:optPath,name:opt.dataset.baseLabel||opt.textContent||labelStable(optPath),path:optPath};
+    try{
+      const saved=localStorage.getItem('f1BgmPath')||localStorage.getItem('raceBgmPath')||'';
+      if(saved&&isAudioPathStable(saved))return {src:saved,fallbackSrc:saved,name:labelStable(saved),path:saved};
+    }catch(_){ }
+    const direct='bgm/Messy.mp3';
+    return {src:direct,fallbackSrc:direct,name:'Messy',path:direct};
+  }
+  function canonicalUrlStable(src){try{return new URL(src,document.baseURI).href;}catch(_){return String(src||'');}}
+  function fixBgmRateStable(force=false){
+    const a=audioStable();
+    if(!a)return;
+    const n=nowStable();
+    if(!force&&n-lastRateFixStable<750)return;
+    lastRateFixStable=n;
+    try{a.defaultPlaybackRate=1;}catch(_){ }
+    try{if(Math.abs((Number(a.playbackRate)||1)-1)>0.001)a.playbackRate=1;}catch(_){ }
+    try{a.preservesPitch=true;a.mozPreservesPitch=true;a.webkitPreservesPitch=true;}catch(_){ }
+  }
+  function shouldPlayStable(preview=false){
+    return !!(bgmEnabledStable()&&!isMutedStable()&&selectedTrackStable()&&(state!=='menu'||preview||(typeof BGM!=='undefined'&&BGM.previewInMenu)));
+  }
+  function stopBgmStable(note='',hardMute=false){
+    const a=audioStable();
+    try{if(a){a.pause();a.muted=!!hardMute||state==='menu';}}catch(_){ }
+    zeroBgmSynthStable();
+    try{if(typeof BGM!=='undefined'){BGM.externalActive=false;BGM.fallbackNotified=false;if(state==='menu')BGM.previewInMenu=false;}}catch(_){ }
+    if(note)setBgmStatusStable(note,'paused');
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function prepareAudioElementStable(track){
+    const a=audioStable();
+    if(!a||!track||!track.src)return null;
+    const abs=canonicalUrlStable(track.src);
+    try{
+      a.loop=true;
+      a.preload='auto';
+      a.playsInline=true;
+      a.setAttribute('playsinline','');
+      a.setAttribute('webkit-playsinline','');
+      a.crossOrigin='anonymous';
+      fixBgmRateStable(true);
+      if(a.dataset.stableBgmAbs!==abs){
+        a.dataset.stableBgmAbs=abs;
+        a.dataset.stableBgmFallback=track.fallbackSrc||track.src;
+        a.src=track.src;
+        a.load();
+        try{a.currentTime=0;}catch(_){ }
+      }
+      a.onerror=function(){
+        try{
+          const fb=this.dataset.stableBgmFallback;
+          if(fb&&canonicalUrlStable(fb)!==this.src){
+            this.dataset.stableBgmAbs=canonicalUrlStable(fb);
+            this.src=fb;
+            this.load();
+            fixBgmRateStable(true);
+            this.play().catch(()=>{});
+            setBgmStatusStable('Pages 경로 실패 → GitHub raw 경로로 재시도 중 · '+(track.name||labelStable(fb)),'info');
+          }
+        }catch(_){ }
+      };
+    }catch(_){ }
+    return a;
+  }
+  function playBgmStable(opts={}){
+    const preview=!!(opts&&opts.preview);
+    if(preview&&state==='menu'){try{if(typeof BGM!=='undefined')BGM.previewInMenu=true;}catch(_){ }}
+    if(!shouldPlayStable(preview)){if(state==='menu'&&!preview)stopBgmStable('',false);return false;}
+    const track=selectedTrackStable();
+    const a=prepareAudioElementStable(track);
+    if(!a){setBgmStatusStable('BGM 오디오 엘리먼트를 찾지 못했습니다.','error');return false;}
+    try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+    try{if(typeof SND!=='undefined'&&SND&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
+    syncMuteFlagsStable(false);
+    zeroBgmSynthStable();
+    try{
+      a.muted=false;
+      a.volume=clampStable(bgmVolumeStable()*0.95,0,1);
+      fixBgmRateStable(true);
+      if(typeof BGM!=='undefined'){
+        BGM.externalActive=true;
+        BGM.fallbackNotified=false;
+        BGM.sourceKey='stable-bgm|'+canonicalUrlStable(track.src);
+      }
+      const p=a.play();
+      setBgmStatusStable((state==='menu'?'미리듣기 중 · ':'재생 중 · ')+(track.name||labelStable(track.src)),'ready');
+      if(p&&typeof p.then==='function')p.then(()=>{fixBgmRateStable(true);zeroBgmSynthStable();}).catch(()=>{
+        setBgmStatusStable('iPhone이 자동 재생을 막았습니다. START 또는 미리듣기를 한 번 더 누르세요.','error');
+      });
+      try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+      return true;
+    }catch(_){
+      setBgmStatusStable('선택한 BGM을 재생할 수 없습니다. GitHub 경로와 파일명을 확인하세요.','error');
+      return false;
+    }
+  }
+  function updateBackgroundMusicStable(mul=1){
+    const n=nowStable();
+    if(n-lastBgmUpdateStable<700){fixBgmRateStable(false);return;}
+    lastBgmUpdateStable=n;
+    const a=audioStable();
+    zeroBgmSynthStable();
+    fixBgmRateStable(true);
+    if(isMutedStable()){
+      try{if(a){a.pause();a.muted=true;}}catch(_){ }
+      return;
+    }
+    const desired=shouldPlayStable(false);
+    if(a){
+      try{
+        a.volume=clampStable(bgmVolumeStable()*0.95*Math.max(0,Number(mul)||1),0,1);
+        a.muted=!desired;
+        if(desired&&a.paused&&(state==='race'||state==='lights'||state==='finished'))playBgmStable({preview:false,reason:'update'});
+        if(!desired&&state==='menu')a.pause();
+      }catch(_){ }
+    }
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function setMutedStable(on,show=true){
+    on=!!on;
+    syncMuteFlagsStable(on);
+    const a=audioStable();
+    if(on){
+      zeroBgmSynthStable();
+      try{if(a){a.pause();a.muted=true;}}catch(_){ }
+      setMasterStable(0);
+    }else{
+      try{if(typeof initAudio==='function')initAudio();}catch(_){ }
+      try{if(typeof SND!=='undefined'&&SND&&SND.ctx&&SND.ctx.state==='suspended'&&SND.ctx.resume)SND.ctx.resume().catch(()=>{});}catch(_){ }
+      setMasterStable(0.96);
+      try{if(a){a.muted=false;a.volume=clampStable(bgmVolumeStable()*0.95,0,1);fixBgmRateStable(true);}}catch(_){ }
+      if(state!=='menu')setTimeout(()=>playBgmStable({preview:false,reason:'unmute'}),80);
+    }
+    const b=$stable('tMute');
+    if(b){b.textContent=on?'MUTED':'MUTE';b.classList.toggle('on',on);}
+    if(show){try{if(typeof showMsg==='function')showMsg(on?'MUTED':'SOUND ON','',560);}catch(_){ }}
+  }
+  function toggleMutedStable(show=true){
+    const n=nowStable();
+    if(n-lastMuteToggleStable<520)return;
+    lastMuteToggleStable=n;
+    setMutedStable(!stableMuted,show);
+  }
+
+  try{
+    const oldBgmChoiceLabelStable=typeof bgmChoiceLabel==='function'?bgmChoiceLabel:null;
+    bgmChoice=function(){return rawBgmChoiceStable();};
+    bgmChoiceLabel=function(choice){
+      const raw=String(choice||'').startsWith(STABLE_CHOICE_PREFIX)?String(choice).slice(STABLE_CHOICE_PREFIX.length):(choice||rawBgmChoiceStable());
+      const t=selectedTrackStable(raw);
+      return (t&&t.name)||(oldBgmChoiceLabelStable?oldBgmChoiceLabelStable(raw):'BGM');
+    };
+    resolveBgmSource=function(){return selectedTrackStable(rawBgmChoiceStable());};
+    backgroundMusicWanted=function(){return !!(bgmEnabledStable()&&!isMutedStable()&&(state!=='menu'||(typeof BGM!=='undefined'&&BGM.previewInMenu)));};
+    startBackgroundMusic=function(opts={}){return playBgmStable({preview:!!(opts&&opts.preview),reason:'startBackgroundMusic'});};
+    pauseBackgroundMusic=function(note){stopBgmStable(note||'BGM 정지',isMutedStable());};
+    fallbackToBuiltInBgm=function(note){stopBgmStable(note||'GitHub BGM만 사용합니다.',isMutedStable());};
+    updateBackgroundMusic=function(mul=1){return updateBackgroundMusicStable(mul);};
+    updateBgmPreviewButton=function(){
+      const b=$stable('bgmPreview');if(!b)return;
+      const a=audioStable();
+      const playing=!!(a&&a.src&&!a.paused&&!a.muted&&!isMutedStable()&&shouldPlayStable(true));
+      b.textContent=playing?'Ⅱ 미리듣기 정지':'▶ 미리듣기';
+      b.classList.toggle('playing',playing);
+    };
+  }catch(_){ }
+
+  window.__setAllGameMuted=setMutedStable;
+  window.__setF1FastGlobalMuted=setMutedStable;
+  window.__setStableGameMuted20260701=setMutedStable;
+  window.__playStableBgm20260701=playBgmStable;
+
+  function bindStableMuteButton(){
+    const old=$stable('tMute');
+    if(!old)return;
+    if(old.dataset.audioStableMute20260701==='1'){syncMuteFlagsStable(stableMuted);return;}
+    const b=old.cloneNode(true);
+    b.id='tMute';
+    b.dataset.audioStableMute20260701='1';
+    b.dataset.freeMuteFinal='1';
+    b.textContent=stableMuted?'MUTED':'MUTE';
+    b.classList.toggle('on',stableMuted);
+    old.replaceWith(b);
+    const handler=e=>{try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }toggleMutedStable(true);};
+    if(window.PointerEvent)b.addEventListener('pointerup',handler,{capture:true,passive:false});
+    else b.addEventListener('touchend',handler,{capture:true,passive:false});
+    b.addEventListener('click',handler,{capture:true,passive:false});
+  }
+  function ensureKnownBgmOptionsStable(){
+    const sel=$stable('bgmTrack');
+    if(!sel)return;
+    try{if(typeof BGM!=='undefined'&&!BGM.sameFolderTracks)BGM.sameFolderTracks=Object.create(null);}catch(_){ }
+    const fixed=['bgm/Messy.mp3','bgm/LoseMyMind.mp3'];
+    const hasPath=src=>Array.from(sel.options).some(o=>String(o.title||o.dataset.path||o.textContent||'').toLowerCase().includes(String(src).split('/').pop().toLowerCase()));
+    let group=Array.from(sel.children).find(ch=>ch.tagName==='OPTGROUP'&&ch.dataset.audioStableKnown20260701==='1');
+    for(const src of fixed){
+      if(hasPath(src))continue;
+      if(!group){group=document.createElement('optgroup');group.label='GitHub BGM · bgm 폴더 고정 후보';group.dataset.audioStableKnown20260701='1';sel.appendChild(group);}
+      const key='samefolder:stable_known_'+src.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const track={src:encodePathStable(src),fallbackSrc:encodePathStable(src),name:labelStable(src),path:src,kind:'known-bgm-folder'};
+      try{if(typeof BGM!=='undefined'&&BGM.sameFolderTracks)BGM.sameFolderTracks[key]=track;}catch(_){ }
+      const opt=document.createElement('option');
+      opt.value=key;
+      opt.textContent=track.name;
+      opt.title=src;
+      opt.dataset.baseLabel=track.name;
+      opt.dataset.sameFolder='1';
+      group.appendChild(opt);
+    }
+    if(!rawBgmChoiceStable()||!selectedTrackStable(rawBgmChoiceStable())){
+      const first=Array.from(sel.options).find(o=>o.value&&o.value.indexOf('samefolder:')===0);
+      if(first)sel.value=first.value;
+    }
+  }
+
+  function bindStableBgmUi(){
+    const preview=$stable('bgmPreview');
+    if(preview&&preview.dataset.audioStablePreview20260701!=='1'){
+      const b=preview.cloneNode(true);
+      b.id='bgmPreview';
+      b.dataset.audioStablePreview20260701='1';
+      b.dataset.finalFreeNamePreview='1';
+      preview.replaceWith(b);
+      b.addEventListener('click',e=>{
+        try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
+        const a=audioStable();
+        if(a&&a.src&&!a.paused&&!a.muted){stopBgmStable('미리듣기 정지 · '+labelStable((selectedTrackStable()||{}).src||''),false);return;}
+        playBgmStable({preview:true,reason:'preview'});
+      },{capture:true,passive:false});
+    }
+    const sel=$stable('bgmTrack');
+    if(sel&&sel.dataset.audioStableSelect20260701!=='1'){
+      const clone=sel.cloneNode(true);
+      clone.dataset.audioStableSelect20260701='1';
+      clone.dataset.finalFreeNameSelect='1';
+      sel.replaceWith(clone);
+      clone.addEventListener('change',e=>{
+        try{e.stopImmediatePropagation();}catch(_){ }
+        const t=selectedTrackStable(clone.value);
+        try{localStorage.setItem('f1BgmChoice',clone.value);localStorage.setItem('raceBgmChoice',clone.value);if(t&&t.src)localStorage.setItem('f1BgmPath',t.src);}catch(_){ }
+        const a=audioStable();
+        try{if(a){a.pause();a.removeAttribute('src');a.dataset.stableBgmAbs='';a.load();}}catch(_){ }
+        if(state==='menu')playBgmStable({preview:true,reason:'select'});
+      },{capture:true,passive:true});
+    }
+    const refresh=$stable('bgmSameFolderRefresh')||$stable('bgmSameFolder');
+    if(refresh&&refresh.dataset.audioStableRefresh20260701!=='1'){
+      const b=refresh.cloneNode(true);
+      b.id='bgmSameFolderRefresh';
+      b.dataset.audioStableRefresh20260701='1';
+      b.dataset.finalFreeNameBgm='1';
+      refresh.replaceWith(b);
+      b.addEventListener('click',async e=>{
+        try{e.preventDefault();e.stopImmediatePropagation();e.stopPropagation();}catch(_){ }
+        b.textContent='검색 중…';
+        try{if(window.__refreshFreeNameGithubBgm)await window.__refreshFreeNameGithubBgm(true);else if(window.__refreshSameFolderMusic)await window.__refreshSameFolderMusic(true);}catch(_){ }
+        b.textContent='BGM 검색';
+        if(state==='menu')playBgmStable({preview:true,reason:'search'});
+      },{capture:true,passive:false});
+    }
+    try{if(typeof updateBgmPreviewButton==='function')updateBgmPreviewButton();}catch(_){ }
+  }
+  function installRedundantPlayGuardStable(){
+    try{
+      if(window.__bgmRedundantPlayGuard20260701||!window.HTMLMediaElement||!HTMLMediaElement.prototype||!HTMLMediaElement.prototype.play)return;
+      window.__bgmRedundantPlayGuard20260701=true;
+      const nativePlay=HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play=function(){
+        try{
+          if(this&&this.id==='bgmAudio'&&!this.paused&&!this.ended&&this.readyState>=2){
+            fixBgmRateStable(true);
+            return Promise.resolve();
+          }
+        }catch(_){ }
+        return nativePlay.apply(this,arguments);
+      };
+    }catch(_){ }
+  }
+
+  function installRateGuardsStable(){
+    const a=audioStable();
+    if(!a||a.dataset.audioStableRateGuard20260701==='1')return;
+    a.dataset.audioStableRateGuard20260701='1';
+    ['ratechange','play','playing','loadedmetadata','seeked','timeupdate'].forEach(ev=>a.addEventListener(ev,()=>fixBgmRateStable(ev!=='timeupdate'),{passive:true}));
+  }
+  function installStableBadges(){
+    let badge=$stable('mobileBuildBadgeFinal')||$stable('currentVersionBadge');
+    if(!badge){
+      badge=document.createElement('div');
+      badge.id='mobileBuildBadgeFinal';
+      badge.style.cssText='margin:6px auto 0;color:#7f93a4;font-size:8.5px;letter-spacing:.7px;text-align:center;';
+      const btn=$stable('btnStart');if(btn&&btn.parentNode)btn.parentNode.insertBefore(badge,btn);
+    }
+    badge.textContent=BUILD_AUDIO_FIX+' · mute debounce · BGM 1.0x lock';
+  }
+  function bootAudioStable(){
+    syncMuteFlagsStable(stableMuted);
+    ensureKnownBgmOptionsStable();
+    bindStableMuteButton();
+    bindStableBgmUi();
+    installRateGuardsStable();
+    installRedundantPlayGuardStable();
+    zeroBgmSynthStable();
+    installStableBadges();
+  }
+
+  const startBtnStable=$stable('btnStart');
+  if(startBtnStable&&startBtnStable.dataset.audioStableStart20260701!=='1'){
+    startBtnStable.dataset.audioStableStart20260701='1';
+    startBtnStable.addEventListener('click',()=>{setTimeout(()=>{if(!isMutedStable()&&state!=='menu')playBgmStable({preview:false,reason:'start'});},180);},{capture:true,passive:true});
+  }
+  const oldGoToStartMenuStable=typeof goToStartMenu==='function'?goToStartMenu:null;
+  if(oldGoToStartMenuStable&&!oldGoToStartMenuStable.__audioStable20260701){
+    goToStartMenu=function(){
+      const r=oldGoToStartMenuStable.apply(this,arguments);
+      stopBgmStable('시작 메뉴 · 미리듣기를 누르면 BGM이 재생됩니다.',isMutedStable());
+      bootAudioStable();
+      return r;
+    };
+    goToStartMenu.__audioStable20260701=true;
+  }
+  const oldStartRaceStable=typeof startRace==='function'?startRace:null;
+  if(oldStartRaceStable&&!oldStartRaceStable.__audioStable20260701){
+    startRace=function(){
+      const r=oldStartRaceStable.apply(this,arguments);
+      try{if(typeof BGM!=='undefined')BGM.previewInMenu=false;}catch(_){ }
+      if(!isMutedStable())setTimeout(()=>playBgmStable({preview:false,reason:'race-start'}),180);
+      return r;
+    };
+    startRace.__audioStable20260701=true;
+  }
+
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopBgmStable('',isMutedStable());else fixBgmRateStable(true);},{passive:true});
+  bootAudioStable();
+  for(const d of [160,520,1300,2800,4200])setTimeout(bootAudioStable,d);
+  setInterval(()=>{syncMuteFlagsStable(stableMuted);fixBgmRateStable(false);zeroBgmSynthStable();},1500);
+})();
+/* END AUDIO MUTE + BGM RATE STABILITY PATCH — 2026-07-01 */
+
+
+
 document.getElementById('btnRestart').addEventListener('click',()=>{startRace();focusGame();});
 
 })();
